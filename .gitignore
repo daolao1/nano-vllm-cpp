@@ -1,0 +1,44 @@
+# Build directories
+build/
+cmake-build-*/
+out/
+
+# CMake / CTest
+Testing/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+*.cmake.in
+
+# Compiled objects / binaries
+*.o
+*.obj
+*.so
+*.so.*
+*.a
+*.dylib
+*.dll
+*.exe
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.cache/
+
+# Python (for benches/tools)
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs / temp
+*.log
+*.tmp
+local.properties
