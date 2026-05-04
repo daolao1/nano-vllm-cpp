@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>nano-vllm-cpp 推理数据流讲解</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --card: #161b22;
+    --card-soft: #11161d;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --text-muted: #8b949e;
+    --heading: #f0f6fc;
+    --accent: #58a6ff;
+    --accent2: #3fb950;
+    --accent3: #d2a8ff;
+    --warn-bg: #2d1b00;
+    --warn-border: #9e6a03;
+    --danger-bg: #2d1115;
+    --danger-border: #a40e26;
+    --mono-bg: #1a2030;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background:
+      radial-gradient(circle at top right, rgba(88, 166, 255, 0.08), transparent 28%),
+      radial-gradient(circle at top left, rgba(63, 185, 80, 0.06), transparent 24%),
+      var(--bg);
+    color: var(--text);
+    line-height: 1.72;
+    padding: 2rem;
+    max-width: 1080px;
+    margin: 0 auto;
+  }
+  h1 {
+    color: var(--heading);
+    font-size: 2.15rem;
+    margin-bottom: 0.6rem;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.85rem;
+  }
+  h1 span { color: var(--accent); }
+  .subtitle {
+    color: var(--text-muted);
+    margin-bottom: 2rem;
+    font-size: 0.95rem;
+  }
+  .toc {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem 1.4rem;
+    margin-bottom: 2rem;
+  }
+  .toc-title {
+    color: var(--heading);
+    font-weight: 600;
+    margin-bottom: 0.6rem;
+  }
+  .toc ul { list-style: none; }
+  .toc li { margin: 0.28rem 0; }
+  .toc a {
+    color: var(--accent);
+    text-decoration: none;
+    font-size: 0.94rem;
+  }
+  .toc a:hover { text-decoration: underline; }
+  h2 {
+    color: var(--heading);
+    font-size: 1.4rem;
+    margin: 2rem 0 1rem;
+    padding-left: 0.65rem;
+    border-left: 3px solid var(--accent);
+  }
+  h3 {
+    color: var(--heading);
+    font-size: 1.05rem;
+    margin: 1.25rem 0 0.7rem;
+  }
+  p {
+    margin-bottom: 0.85rem;
+    color: var(--text);
+  }
+  .section-desc {
+    color: var(--text-muted);
+    font-size: 0.93rem;
+    margin-bottom: 1rem;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 0.9rem;
+    margin: 1rem 0 1.25rem;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem 1.1rem;
+  }
+  .card h3 {
+    margin-top: 0;
+    color: var(--accent);
+  }
+  .badge {
+    display: inline-block;
+    padding: 0.12rem 0.5rem;
+    font-size: 0.74rem;
+    border-radius: 999px;
+    margin-left: 0.45rem;
+    vertical-align: middle;
+    border: 1px solid transparent;
+  }
+  .badge-prefill {
+    background: #122117;
+    color: #7ee787;
+    border-color: #1a4028;
+  }
+  .badge-decode {
+    background: #1a2332;
+    color: #79c0ff;
+    border-color: #1f3a5f;
+  }
+  .badge-cache {
+    background: #2a1f36;
+    color: var(--accent3);
+    border-color: #3d2e52;
+  }
+  .badge-tp {
+    background: #132131;
+    color: #a5d6ff;
+    border-color: #284766;
+  }
+  .diagram {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.2rem;
+    margin: 1rem 0 1.4rem;
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    font-size: 0.86rem;
+    white-space: pre;
+    overflow-x: auto;
+    color: var(--text-muted);
+    line-height: 1.52;
+  }
+  .note, .danger {
+    border-radius: 8px;
+    padding: 0.8rem 1rem;
+    margin: 0.9rem 0 1rem;
+    font-size: 0.9rem;
+  }
+  .note {
+    background: var(--warn-bg);
+    border: 1px solid var(--warn-border);
+    color: #e3b341;
+  }
+  .danger {
+    background: var(--danger-bg);
+    border: 1px solid var(--danger-border);
+    color: #ffb3ba;
+  }
+  code {
+    font-family: 'SFMono-Regular', Consolas, monospace;
+    background: var(--mono-bg);
+    padding: 0.15rem 0.38rem;
+    border-radius: 4px;
+    color: #e6edf3;
+    font-size: 0.88rem;
+  }
+  pre {
+    background: var(--card-soft);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem 1.1rem;
+    overflow-x: auto;
+    margin: 0.8rem 0 1.1rem;
+  }
+  pre code {
+    background: transparent;
+    padding: 0;
+    font-size: 0.86rem;
+    line-height: 1.56;
+    display: block;
+  }
+  ul {
+    padding-left: 1.2rem;
+    margin-bottom: 1rem;
+  }
+  li { margin: 0.34rem 0; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0 1.2rem;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  th, td {
+    padding: 0.85rem 0.95rem;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+    vertical-align: top;
+  }
+  th {
+    color: var(--heading);
+    background: #131922;
+    font-weight: 600;
+  }
+  tr:last-child td { border-bottom: none; }
+  .pill-row {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin: 0.8rem 0 0.3rem;
+  }
+  .pill {
+    font-size: 0.8rem;
+    padding: 0.22rem 0.6rem;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--text-muted);
+  }
+  footer {
+    margin-top: 3rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    text-align: center;
+  }
+  @media (max-width: 700px) {
+    body { padding: 1rem; }
+    h1 { font-size: 1.8rem; }
+    table, thead, tbody, th, td, tr { display: block; }
+    thead { display: none; }
+    td {
+      border-bottom: 1px solid var(--border);
+      padding: 0.8rem 0.9rem;
+    }
+    tr:last-child td:last-child { border-bottom: none; }
+  }
+</style>
+</head>
+<body>
+
+<h1><span>nano-vllm-cpp</span> 推理数据流讲解</h1>
+<p class="subtitle">基于 include/models/qwen3.h、src/models/qwen3.cpp、include/layers/attention.h、src/layers/attention.cpp、include/layers/linear.h、src/layers/linear.cpp、include/layers/embed_head.h、src/layers/embed_head.cpp、include/layers/layernorm.h、src/layers/layernorm.cpp、include/utils/context.h、src/utils/context.cpp、tests/test_models.cpp 的实现解读。目标是讲清楚从 input_ids 到 logits 的真实前向路径、Prefill / Decode 如何切分、KV Cache 怎样接入，以及 Tensor Parallel 在哪些位置发生通信。</p>
+
+<div class="toc">
+  <div class="toc-title">目录</div>
+  <ul>
+    <li><a href="#overview">1. 推理路径总览</a></li>
+    <li><a href="#control">2. 输入、Context 与控制面</a></li>
+    <li><a href="#pipeline">3. 端到端组合图</a></li>
+    <li><a href="#embedding">4. Embedding 与 residual 起点</a></li>
+    <li><a href="#decoder">5. DecoderLayer 内部数据流</a></li>
+    <li><a href="#attention">6. Attention 的计算与分支</a></li>
+    <li><a href="#mlp">7. MLP、最终 Norm 与 LM Head</a></li>
+    <li><a href="#tp">8. Tensor Parallel 汇合点</a></li>
+    <li><a href="#loading">9. 权重加载与算子映射</a></li>
+    <li><a href="#tests">10. 测试覆盖与当前限制</a></li>
+  </ul>
+</div>
+
+<h2 id="overview">1. 推理路径总览</h2>
+<p class="section-desc">一句话总结：这条链路不是“抽象 Transformer 教材图”，而是当前 nano-vllm-cpp 已经实现并可运行的 Qwen3 前向路径。模型层负责算子组合，Context 负责把 Prefill / Decode、KV Cache、序列边界和页表信息灌进运行时。</p>
+
+<div class="grid">
+  <div class="card">
+    <h3>模型入口</h3>
+    <p><code>Qwen3ForCausalLM::forward</code> 接收 <code>input_ids</code> 和 <code>positions</code>，先走 <code>model_.forward</code>，最后交给 <code>lm_head_.forward</code> 产出 logits。</p>
+  </div>
+  <div class="card">
+    <h3>控制入口</h3>
+    <p>Prefill 还是 Decode 不是模型自己推断，而是调用方提前写入 <code>Context</code>。Attention、LM Head 和页式 KV Cache 都依赖这些元数据。</p>
+  </div>
+  <div class="card">
+    <h3>算子主干</h3>
+    <p>整条主干是 Embedding - DecoderLayer x L - Final RMSNorm - LM Head。每个 DecoderLayer 内部再拆成 input_layernorm、self_attn、post_attention_layernorm、mlp。</p>
+  </div>
+  <div class="card">
+    <h3>并行语义</h3>
+    <p>TP 不是只切权重。Embedding、RowParallelLinear、LM Head 都会触发通信；QKV 和 gate/up 则保持本地 shard 计算，等后续阶段再汇合。</p>
+  </div>
+</div>
+
+<div class="diagram">input_ids [N] + positions [N] + Context
+        │
+        ▼
+Qwen3ForCausalLM::forward
+        │
+        ├── Qwen3Model::forward
+        │     ├── VocabParallelEmbedding          -> hidden_states [N, H]
+        │     ├── for each decoder layer:
+        │     │     input_layernorm
+        │     │     qkv_proj -> q/k/v -> q_norm/k_norm -> RoPE
+        │     │     Attention(q, k, v, Context, KV Cache)
+        │     │     o_proj
+        │     │     post_attention_layernorm
+        │     │     gate_up_proj -> SiluAndMul -> down_proj
+        │     └── final RMSNorm                  -> hidden [N, H] or [rows, H]
+        │
+        └── ParallelLMHead
+              ├── prefill 时可先 gather_last_tokens
+              ├── local logits [rows, vocab_local]
+              └── TP 时 gather_last_dim_to_rank0</div>
+
+<div class="pill-row">
+  <span class="pill">模型只组合算子</span>
+  <span class="pill">Context 决定执行分支</span>
+  <span class="pill">Attention 负责读写 KV Cache</span>
+  <span class="pill">TP 通信嵌入真实 forward</span>
+</div>
+
+<h2 id="control">2. 输入、Context 与控制面 <span class="badge badge-cache">Context / KV Cache</span></h2>
+<p class="section-desc">虽然模型前向签名很短，但真正决定推理行为的元数据大多不在函数参数里，而在 thread_local 的 Context 中。理解这一层，才能看清 Prefill、Decode 和页式缓存是怎样进入算子的。</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>字段</th>
+      <th>形状或语义</th>
+      <th>谁来消费</th>
+      <th>影响</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>input_ids</code></td>
+      <td>通常是扁平 token id，形状 <code>[N]</code></td>
+      <td>VocabParallelEmbedding</td>
+      <td>查词表权重，产生 <code>[N, H]</code> 的 hidden_states。</td>
+    </tr>
+    <tr>
+      <td><code>positions</code></td>
+      <td>形状 <code>[N]</code></td>
+      <td>RotaryEmbedding</td>
+      <td>对 q 和 k 做位置旋转。</td>
+    </tr>
+    <tr>
+      <td><code>is_prefill</code></td>
+      <td><code>true</code> 表示 Prefill，<code>false</code> 表示 Decode</td>
+      <td>Attention, ParallelLMHead</td>
+      <td>决定走 dense prefill、paged prefill 还是 decode paged attention，也决定 lm head 是否只保留每条序列最后一个 token。</td>
+    </tr>
+    <tr>
+      <td><code>cu_seqlens_q</code>, <code>cu_seqlens_k</code></td>
+      <td>prefix sum 形式的序列边界</td>
+      <td>Attention, ParallelLMHead</td>
+      <td>Prefill attention 需要它划分序列，lm head 的 <code>gather_last_tokens</code> 也依赖它定位每条序列的尾 token。</td>
+    </tr>
+    <tr>
+      <td><code>slot_mapping</code></td>
+      <td>逻辑 token 到 KV cache 物理槽位的映射</td>
+      <td>Attention</td>
+      <td>在真正读 attention 之前，先把当前步的 key/value 写到对应 cache 页。</td>
+    </tr>
+    <tr>
+      <td><code>context_lens</code></td>
+      <td>每条序列当前上下文长度</td>
+      <td>Decode attention</td>
+      <td>告诉 decode kernel 每个 query 需要回看多长的历史。</td>
+    </tr>
+    <tr>
+      <td><code>block_tables</code></td>
+      <td>逻辑 block 到物理 block 的页表</td>
+      <td>PagedAttention</td>
+      <td>决定注意力如何通过页表访问缓存中的历史 K/V。</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="note">当前实现里 Context 存在于 <code>src/utils/context.cpp</code> 的 thread_local 存储中。这意味着多线程、多 rank 前向可以并发持有不同的页表、序列边界和 slot mapping，而不会互相覆盖。</div>
+
+<div class="danger">模型不会自动猜测“现在是 prefill 还是 decode”。如果调用方没有先设置正确的 Context，那么 forward 虽然能进到模型代码，但 attention 分支、KV 写入和 lm head 行为都会失真。</div>
+
+<h2 id="pipeline">3. 端到端组合图</h2>
+<p class="section-desc">下面这张图对应的是当前 <code>src/models/qwen3.cpp</code> 里真正的 forward 顺序。这里的 <code>N</code> 是本轮参与计算的 token 数，<code>H</code> 是 hidden_size，<code>Hq</code> 是本 rank 的 query 头数乘以 head_dim，<code>Hkv</code> 是本 rank 的 kv 头数乘以 head_dim，<code>I</code> 是本 rank 的 intermediate_size。</p>
+
+<div class="diagram">input_ids [N] + positions [N] + Context
+        |
+        v
+VocabParallelEmbedding
+  local lookup(weight shard[vocab_local, H])
+  -> all_reduce_sum if tp_size > 1
+  -> hidden_states [N, H]
+        |
+        v
+for each decoder layer:
+  if residual undefined:
+      residual = hidden_states
+      hidden = RMSNorm(hidden_states)
+  else:
+      hidden, residual = AddRMSNorm(hidden_states, residual)
+
+  qkv = QKVParallelLinear(hidden)                     -> [N, Hq + Hkv + Hkv]
+  q = reshape(qkv[..., :Hq])                          -> [N, local_q_heads, head_dim]
+  k = reshape(qkv[..., Hq:Hq+Hkv])                    -> [N, local_kv_heads, head_dim]
+  v = reshape(qkv[..., Hq+Hkv:])                      -> [N, local_kv_heads, head_dim]
+  q = q_norm(q), k = k_norm(k)                        -> when attention_bias == false
+  rotary_emb(positions, q, k)                         -> in-place RoPE
+  attn_out = Attention(q, k, v, Context, KV Cache)   -> [N, local_q_heads, head_dim]
+  attn_out = reshape(attn_out)                        -> [N, Hq]
+  attn_out = RowParallelLinear(attn_out)              -> [N, H], all_reduce_sum if tp_size > 1
+
+  hidden, residual = AddRMSNorm(attn_out, residual)
+  gate_up = MergedColumnParallelLinear(hidden)        -> [N, 2I]
+  mlp_out = SiluAndMul(gate_up)                       -> [N, I]
+  hidden_states = RowParallelLinear(mlp_out)          -> [N, H], all_reduce_sum if tp_size > 1
+
+after last layer:
+  hidden = RMSNorm(hidden_states + residual)
+
+ParallelLMHead:
+  if prefill and cu_seqlens_q defined:
+      hidden = gather_last_tokens(hidden)             -> [num_seqs, H]
+  local_logits = hidden @ weight_local^T             -> [rows, vocab_local]
+  logits = gather_last_dim_to_rank0 if tp_size > 1   -> rank0:[rows, vocab], other ranks: undefined</div>
+
+<div class="note">这里最容易误解的点是 residual 流。代码里不是每个子层都显式写一条 residual add，而是通过 <code>RMSNorm::forward(input, residual)</code> 的融合路径，把 residual 累加和归一化合并执行，所以 layer.forward 返回的是一对张量，而不是单个 hidden。</div>
+
+<h2 id="embedding">4. Embedding 与 residual 起点</h2>
+<p class="section-desc">模型入口是 <code>Qwen3Model::forward</code>。第一步不是线性层，而是 <code>VocabParallelEmbedding::forward</code>。它的输出一方面成为第一层的 hidden_states，另一方面也成为第一层 residual 的起点。</p>
+
+<div class="grid">
+  <div class="card">
+    <h3>VocabParallelEmbedding 做什么</h3>
+    <p>TP=1 时它就是普通 embedding lookup。TP&gt;1 时，每个 rank 只持有自己的词表分片 <code>[vocab_local, H]</code>，本 rank 只对本地词表命中的 token 产出非零 embedding，之后通过 <code>all_reduce_sum</code> 合成完整 <code>[N, H]</code> hidden_states。</p>
+  </div>
+  <div class="card">
+    <h3>首层 residual 为什么不是 0</h3>
+    <p>第一层开始时 residual 尚未定义，所以代码会先把 <code>residual = hidden_states</code>，再只对当前 hidden_states 做一次 RMSNorm。这样 attention 之后，post_attention_layernorm 才能把 embedding 分支加回主干。</p>
+  </div>
+</div>
+
+<pre><code>Tensor hidden_states = embed_tokens_.forward(input_ids, allocator, stream);
+Tensor residual;
+
+for (Qwen3DecoderLayer&amp; layer : layers_) {
+    auto layer_output = layer.forward(positions, hidden_states, residual, allocator, stream);
+    hidden_states = layer_output.first;
+    residual = layer_output.second;
+}</code></pre>
+
+<div class="pill-row">
+  <span class="pill">输入: [N]</span>
+  <span class="pill">输出: [N, H]</span>
+  <span class="pill">TP&gt;1 时 embedding 做 all_reduce_sum</span>
+  <span class="pill">首层 residual 起点是 embedding 输出</span>
+</div>
+
+<h2 id="decoder">5. DecoderLayer 内部数据流</h2>
+<p class="section-desc">一个 <code>Qwen3DecoderLayer</code> 由 input_layernorm、self_attn、post_attention_layernorm、mlp 四个状态组件组成，但它真正编码的是两段“先把 residual 累加起来，再做归一化”的 PreNorm 残差流。</p>
+
+<h3>5.1 进 Attention 前</h3>
+<div class="diagram">如果 residual 还没建立:
+  next_residual = hidden_states
+  hidden = input_layernorm(hidden_states)
+
+如果 residual 已存在:
+  hidden, next_residual = input_layernorm(hidden_states, residual)
+  等价于:
+    next_residual = hidden_states + residual
+    hidden = RMSNorm(next_residual)</div>
+
+<h3>5.2 Attention 后进 MLP 前</h3>
+<div class="diagram">attn_out = self_attn(hidden)
+post_attn_hidden, next_residual = post_attention_layernorm(attn_out, next_residual)
+hidden = mlp(post_attn_hidden)
+return {hidden, next_residual}</div>
+
+<pre><code>if (!next_residual.defined()) {
+    next_residual = hidden_states;
+    hidden = input_layernorm_.forward(hidden_states, allocator, stream);
+} else {
+    auto norm_pair = input_layernorm_.forward(hidden_states, next_residual, allocator, stream);
+    hidden = norm_pair.first;
+    next_residual = norm_pair.second;
+}
+
+hidden = self_attn_.forward(positions, hidden, allocator, stream);
+auto post_attn = post_attention_layernorm_.forward(hidden, next_residual, allocator, stream);
+hidden = mlp_.forward(post_attn.first, allocator, stream);
+return {hidden, post_attn.second};</code></pre>
+
+<div class="note">这里的 <code>hidden</code> 更像“当前子层新算出来、尚未并入 residual 的分支输出”；<code>residual</code> 则表示到当前时刻为止已经累计好的主干和。最后一层结束后，模型还会再做一次 <code>norm_.forward(hidden, residual)</code> 收口。</div>
+
+<h2 id="attention">6. Attention 的计算与分支 <span class="badge badge-prefill">dense / paged</span><span class="badge badge-decode">decode</span></h2>
+<p class="section-desc">Qwen3Attention 是整条链路里张量变形最多的地方。它先做 QKV 投影，再切片重排，再做 q_norm、k_norm 和 RoPE，最后进入 attention kernel，并通过 <code>o_proj</code> 投回 hidden_size。</p>
+
+<div class="grid">
+  <div class="card">
+    <h3>QKVParallelLinear</h3>
+    <p>输入是 <code>[N, H]</code>，输出是 <code>[N, Hq + Hkv + Hkv]</code>。TP&gt;1 时，Q 头和 KV 头都按输出维切 shard，每个 rank 只负责自己的 q/k/v 头。</p>
+  </div>
+  <div class="card">
+    <h3>slice + reshape</h3>
+    <p>Q、K、V 不是通过三条独立线性层得到，而是从一个 qkv 大张量沿最后一维切出，再 reshape 成 <code>[N, heads, head_dim]</code>。</p>
+  </div>
+  <div class="card">
+    <h3>RoPE 前归一化</h3>
+    <p>当前 Qwen3Attention 在 <code>attention_bias == false</code> 的路径下会创建 <code>q_norm</code> 和 <code>k_norm</code>，因此 Qwen3 默认路径是先做 RMSNorm，再做 RoPE。</p>
+  </div>
+</div>
+
+<pre><code>Tensor qkv = qkv_proj_.forward(hidden_states, allocator, stream);
+Tensor q = slice_last_dim_contiguous(qkv, 0, q_size_, allocator, stream)
+             .reshape({rows, num_heads_, head_dim_});
+Tensor k = slice_last_dim_contiguous(qkv, q_size_, kv_size_, allocator, stream)
+             .reshape({rows, num_kv_heads_, head_dim_});
+Tensor v = slice_last_dim_contiguous(qkv, q_size_ + kv_size_, kv_size_, allocator, stream)
+             .reshape({rows, num_kv_heads_, head_dim_});
+
+q = q_norm_->forward(q, allocator, stream);
+k = k_norm_->forward(k, allocator, stream);
+rotary_emb_.forward(positions, q, k, stream);
+
+Tensor output = attn_.forward(q, k, v, allocator, stream);
+return o_proj_.forward(output.reshape({rows, q_size_}), allocator, stream);</code></pre>
+
+<h3>6.1 Attention::forward 的三条执行路</h3>
+<table>
+  <thead>
+    <tr>
+      <th>分支</th>
+      <th>触发条件</th>
+      <th>核心行为</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Prefill dense</td>
+      <td><code>is_prefill == true</code> 且没有 <code>block_tables</code></td>
+      <td>不读 KV Cache，直接用当前步传入的 key/value 做 dense prefill，入口是 <code>launch_prefill_attention_dense</code>。</td>
+    </tr>
+    <tr>
+      <td>Prefill paged</td>
+      <td><code>is_prefill == true</code> 且存在 cache 与 <code>block_tables</code></td>
+      <td>若有 <code>slot_mapping</code> 先写 KV，再用 <code>block_tables</code> 和 <code>cu_seqlens_k</code> 从页式缓存回看上下文，入口是 <code>launch_prefill_attention_paged</code>。</td>
+    </tr>
+    <tr>
+      <td>Decode paged</td>
+      <td><code>is_prefill == false</code></td>
+      <td>要求同时具备 <code>k_cache</code>、<code>v_cache</code>、<code>context_lens</code>、<code>block_tables</code>，先写本步 KV，再走 <code>launch_decode_attention_paged</code> 回看整段历史。</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>6.2 Attention 内部的阶段切分</h3>
+<table>
+  <thead>
+    <tr>
+      <th>阶段</th>
+      <th>关键张量</th>
+      <th>发生的事情</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>KV 写入前</td>
+      <td><code>query</code>, <code>key</code>, <code>value</code></td>
+      <td>检查 defined、CUDA、contiguous、float32、heads 数和 head_dim 是否匹配配置。</td>
+    </tr>
+    <tr>
+      <td>写 KV Cache</td>
+      <td><code>slot_mapping</code>, <code>k_cache</code>, <code>v_cache</code></td>
+      <td>如果缓存已绑定且 <code>slot_mapping</code> 已定义，就调用 <code>store_kvcache</code> 把本步 K/V 写到页式缓存。</td>
+    </tr>
+    <tr>
+      <td>读注意力上下文</td>
+      <td><code>cu_seqlens_*</code> 或 <code>block_tables</code>, <code>context_lens</code></td>
+      <td>按 Prefill 或 Decode 分支选择 dense / paged kernel。</td>
+    </tr>
+    <tr>
+      <td>投回 hidden_size</td>
+      <td><code>o_proj</code></td>
+      <td>把 <code>[N, local_q_heads, head_dim]</code> reshape 成 <code>[N, Hq]</code>，再经过 RowParallelLinear 变回 <code>[N, H]</code>。</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="danger">Decode 路径不允许“没有 cache 也凑合跑”。当前实现要求 decode attention 一定绑定 layer KV cache，并且 Context 里必须给出 <code>context_lens</code> 和 <code>block_tables</code>，否则这条路径在语义上就是不完整的。</div>
+
+<h2 id="mlp">7. MLP、最终 Norm 与 LM Head <span class="badge badge-cache">gather last token</span></h2>
+<p class="section-desc">Attention 结束后，Qwen3MLP 把归一化后的 hidden 先扩成 gate 和 up 两路，再经过 SiLU 门控回到中间维度，最后下投回 hidden_size。模型尾部则执行最终 RMSNorm 和 ParallelLMHead。</p>
+
+<div class="grid">
+  <div class="card">
+    <h3>Qwen3MLP 的三个步骤</h3>
+    <p><code>gate_up_proj</code> 用一次 GEMM 同时得到 gate 和 up 两路；<code>SiluAndMul</code> 计算 <code>silu(gate) * up</code>；<code>down_proj</code> 再把 <code>[N, I]</code> 投回 <code>[N, H]</code>，TP&gt;1 时会做 <code>all_reduce_sum</code>。</p>
+  </div>
+  <div class="card">
+    <h3>Final Norm 的职责</h3>
+    <p>最后一层返回的 hidden 还没有并入最终 residual，所以模型尾部会通过 <code>norm_.forward(hidden_states, residual)</code> 做最终一次融合和归一化，得到送往 lm head 的隐藏状态。</p>
+  </div>
+  <div class="card">
+    <h3>LM Head 为什么只看最后 token</h3>
+    <p>在 prefill 且定义了 <code>cu_seqlens_q</code> 时，<code>ParallelLMHead::forward</code> 会先调用 <code>gather_last_tokens</code>，把整段 prompt 的 hidden 压成每条序列一个尾 token 表示，因此 logits 的行数是序列数，而不是 prompt token 总数。</p>
+  </div>
+</div>
+
+<pre><code>Tensor gate_up = gate_up_proj_.forward(input, allocator, stream);
+Tensor activated = act_fn_.forward(gate_up, allocator, stream);
+Tensor mlp_out = down_proj_.forward(activated, allocator, stream);
+
+if (residual.defined()) {
+    hidden = norm_.forward(hidden_states, residual, allocator, stream).first;
+} else {
+    hidden = norm_.forward(hidden_states, allocator, stream);
+}
+
+Tensor logits = lm_head_.forward(hidden, allocator, stream);</code></pre>
+
+<div class="note">LM Head 在 TP 下会先在每个 rank 上算本地 <code>[rows, vocab_local]</code> logits，再调用 communicator 的 <code>gather_last_dim_to_rank0</code>。这意味着 rank0 拿到完整 <code>[rows, vocab_size]</code>，而其他 rank 当前语义下拿到的是未定义张量。</div>
+
+<h2 id="tp">8. Tensor Parallel 汇合点 <span class="badge badge-tp">collective</span></h2>
+<p class="section-desc">这份实现里的 TP 不是“只把参数切开，运行时还是单卡思维”。哪些层分片、哪些层汇总、哪些层只保留局部 shard，都是算子语义的一部分。</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>模块</th>
+      <th>本地持有的权重</th>
+      <th>本地 forward 输出</th>
+      <th>通信行为</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>VocabParallelEmbedding</td>
+      <td>词表按 vocab 维切 shard</td>
+      <td>本 rank 只对自己词表命中的 token 产生非零 embedding</td>
+      <td><code>all_reduce_sum</code> 合成完整 hidden。</td>
+    </tr>
+    <tr>
+      <td>QKVParallelLinear</td>
+      <td>Q 头和 KV 头分别按输出维切 shard</td>
+      <td>只得到本 rank 的 q/k/v 头</td>
+      <td>无显式通信，后续 attention 和 <code>o_proj</code> 都在本地 shard 上计算。</td>
+    </tr>
+    <tr>
+      <td>RowParallelLinear</td>
+      <td>输入列按 input 维切 shard</td>
+      <td>每个 rank 算出完整输出形状的一部分和</td>
+      <td><code>all_reduce_sum</code> 得到完整输出。</td>
+    </tr>
+    <tr>
+      <td>MergedColumnParallelLinear</td>
+      <td>gate 和 up 各自按输出维切 shard</td>
+      <td>本 rank 拿到 gate_local 和 up_local</td>
+      <td>无显式通信，等到 <code>down_proj</code> 再聚合。</td>
+    </tr>
+    <tr>
+      <td>ParallelLMHead</td>
+      <td>词表按 vocab 维切 shard</td>
+      <td>本地 logits 只有 <code>vocab_local</code> 列</td>
+      <td><code>gather_last_dim_to_rank0</code>，仅 rank0 拿完整 vocab 维。</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="grid">
+  <div class="card">
+    <h3>communicator 的两种形态</h3>
+    <p>当前代码同时支持 in-process communicator 和可选 NCCL backend。前者适合单进程测试里的 lockstep 执行，后者适合真正两线程、两设备的直接 forward。</p>
+  </div>
+  <div class="card">
+    <h3>为什么 group key 重要</h3>
+    <p><code>model.embed_tokens</code>、每层 <code>self_attn.o_proj</code>、每层 <code>mlp.down_proj</code>、<code>lm_head</code> 都带稳定的 TP group key。通信层依赖这个 key 把属于同一组 collective 的 rank 正确对齐。</p>
+  </div>
+</div>
+
+<h2 id="loading">9. 权重加载与算子映射</h2>
+<p class="section-desc">推理路径之所以能真正跑起来，不只是 forward 顺了，还因为 loader 能把 Hugging Face 风格的参数名和 packed 权重布局准确映射到这些算子实例上。</p>
+
+<div class="grid">
+  <div class="card">
+    <h3>Packed 映射</h3>
+    <p><code>q_proj</code>、<code>k_proj</code>、<code>v_proj</code> 会映射到同一个 <code>qkv_proj</code>；<code>gate_proj</code>、<code>up_proj</code> 会映射到同一个 <code>gate_up_proj</code>。所以 forward 里看到的是一整个 qkv 张量和一整个 gate_up 张量，而不是多次独立 GEMM。</p>
+  </div>
+  <div class="card">
+    <h3>TP 下为什么要按 shard_id 加载</h3>
+    <p>在 TP 场景里，qkv_proj 和 gate_up_proj 不能简单把一整块 contiguous 权重直接塞进去，必须像真实 loader 一样，分别按 q/k/v 或 gate/up 的 shard_id 把权重写入本 rank 对应的目标切片。</p>
+  </div>
+</div>
+
+<pre><code>static const std::vector&lt;PackedModuleMapping&gt; mapping = {
+    {"q_proj", "qkv_proj", 0},
+    {"k_proj", "qkv_proj", 1},
+    {"v_proj", "qkv_proj", 2},
+    {"gate_proj", "gate_up_proj", 0},
+    {"up_proj", "gate_up_proj", 1},
+};</code></pre>
+
+<div class="note">这也直接影响文档表达方式。既然代码里是“一次 GEMM，再切片解释”，那文档就不应该把 Q、K、V 或 gate、up 写成彼此独立的多次矩阵乘法，否则会和真实实现脱节。</div>
+
+<h2 id="tests">10. 测试覆盖与当前限制</h2>
+<p class="section-desc">这份推理文档不是空口描述，当前仓库里的模型级测试已经用三层证据把它钉住了：单卡参考前向、TP 锁步回归、NCCL 直连前向。</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>测试主题</th>
+      <th>验证点</th>
+      <th>说明了什么</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>Qwen3ForCausalLmForwardAndLogitsMatchReference</code></td>
+      <td>极小模型下，从 embedding 到最终 logits 的数值结果与手工参考一致</td>
+      <td>证明单卡完整前向链路已经打通，不只是层级单测能过。</td>
+    </tr>
+    <tr>
+      <td><code>Qwen3TensorParallelModelMatchesSingleRankReference</code></td>
+      <td>两 rank TP 模型与单 rank 参考模型比对 embedding、hidden、logits</td>
+      <td>证明全模型 TP 语义已经串通，不只是层级通信函数单独正确。</td>
+    </tr>
+    <tr>
+      <td><code>Qwen3TensorParallelNcclDirectForwardMatchesSingleRankReference</code></td>
+      <td>两个线程、两个设备直接跑 Qwen3ForCausalLM::forward 并与单 rank 结果对齐</td>
+      <td>证明 communicator 不再需要测试代码手工 lockstep 才能完成端到端前向。</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="danger">
+  当前仍然需要记住的限制：
+  <ul>
+    <li>很多 forward 路径都要求 CUDA、contiguous 和 float32。</li>
+    <li>Decode attention 必须先绑定 layer KV cache，并且 Context 里要有 <code>context_lens</code> 和 <code>block_tables</code>。</li>
+    <li>TP 下 <code>lm_head</code> 只有 rank0 会返回完整 logits，其他 rank 当前语义是 undefined tensor。</li>
+    <li>如果 <code>tp_size &gt; 1</code> 但没有安装 communicator，代码会直接抛异常，不再退回本地 shard 输出。</li>
+  </ul>
+</div>
+
+<div class="card">
+  <p>如果要用一句更工程化的话概括这条数据流，可以这样说：Qwen3ForCausalLM 把 embedding、预归一化残差流、页式 attention、门控 MLP 和 TP collective 串成了一条真实可运行的最小推理栈；模型层负责算子组合，Context 负责把序列边界、页表、KV 写入位置和 prefill / decode 语义注入运行时。</p>
+</div>
+
+<footer>
+  推理数据流文档页位于 nano-vllm-cpp/docs 目录，可直接在浏览器打开用于讲解、复盘或面试准备。
+</footer>
+
+</body>
+</html>

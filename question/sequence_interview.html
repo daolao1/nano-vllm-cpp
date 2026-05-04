@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Infra 面试题 — Sequence 模块</title>
+<style>
+  :root {
+    --bg: #0d1117; --card: #161b22; --border: #30363d;
+    --text: #c9d1d9; --muted: #8b949e; --heading: #f0f6fc;
+    --accent: #58a6ff; --green: #3fb950; --orange: #d29922; --red: #f85149; --purple: #d2a8ff;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif; background:var(--bg); color:var(--text); line-height:1.7; padding:2rem; max-width:920px; margin:0 auto; }
+  h1 { color:var(--heading); font-size:1.8rem; border-bottom:1px solid var(--border); padding-bottom:.6rem; }
+  .sub { color:var(--muted); margin-bottom:2rem; font-size:.88rem; }
+  h2 { color:var(--heading); font-size:1.15rem; margin:2.2rem 0 .7rem; padding:.4rem .7rem; border-left:3px solid var(--accent); background:#111820; border-radius:0 6px 6px 0; }
+  .q { background:var(--card); border:1px solid var(--border); border-radius:8px; margin-bottom:.65rem; overflow:hidden; transition:border-color .2s; }
+  .q:hover { border-color:var(--accent); }
+  .qh { display:flex; align-items:center; gap:.5rem; padding:.65rem 1rem; cursor:pointer; user-select:none; }
+  .qh:hover { background:#1c2128; }
+  .qn { color:var(--muted); font-family:monospace; font-size:.8rem; min-width:1.8rem; }
+  .qt { flex:1; font-weight:500; color:var(--heading); font-size:.9rem; }
+  .tg { display:inline-block; font-size:.62rem; padding:.08rem .4rem; border-radius:10px; font-weight:600; text-transform:uppercase; }
+  .tg-llm { background:#1a2332; color:var(--accent); border:1px solid #1f3a5f; }
+  .tg-sys { background:#1f2d1a; color:var(--green); border:1px solid #2d4020; }
+  .tg-cpp { background:#2d2410; color:var(--orange); border:1px solid #4d3800; }
+  .tg-gpu { background:#2a1f36; color:var(--purple); border:1px solid #3d2e52; }
+  .tg-math { background:#2d1a1a; color:var(--red); border:1px solid #5f1f1f; }
+  .arr { color:var(--muted); transition:transform .2s; font-size:.72rem; }
+  .q.open .arr { transform:rotate(90deg); }
+  .qb { display:none; padding:0 1rem .8rem; border-top:1px solid var(--border); }
+  .q.open .qb { display:block; }
+  .a { margin-top:.5rem; }
+  .al { color:var(--green); font-weight:600; font-size:.75rem; text-transform:uppercase; margin-bottom:.25rem; }
+  .a p { font-size:.87rem; margin:.25rem 0; }
+  .a strong { color:var(--heading); }
+  .a code { font-family:'SFMono-Regular',Consolas,monospace; background:#1a2030; padding:.1rem .3rem; border-radius:4px; font-size:.8rem; color:#e6edf3; }
+  .a pre { background:#0d1117; border:1px solid var(--border); border-radius:6px; padding:.6rem .8rem; margin:.4rem 0; overflow-x:auto; font-family:monospace; font-size:.78rem; line-height:1.5; }
+  .a ul { padding-left:1.2rem; margin:.25rem 0; }
+  .a li { font-size:.87rem; margin:.12rem 0; }
+  .a ol { padding-left:1.2rem; margin:.25rem 0; }
+  .fu { background:#111820; border-left:2px solid var(--orange); padding:.35rem .7rem; margin-top:.45rem; border-radius:0 4px 4px 0; font-size:.8rem; }
+  .fu::before { content:"深入追问 → "; color:var(--orange); font-weight:600; }
+  .scenario { color:var(--muted); font-size:.82rem; font-style:italic; margin-bottom:.4rem; padding:.3rem .5rem; background:#111418; border-radius:4px; }
+  footer { margin-top:2.5rem; padding-top:.8rem; border-top:1px solid var(--border); color:var(--muted); font-size:.78rem; text-align:center; }
+</style>
+</head>
+<body>
+
+<h1>AI Infra 面试题</h1>
+<p class="sub">面试官身份：AI Infra 资深工程师。不了解你的项目细节，围绕“你实现了一个 LLM 推理引擎的 Sequence 模块”提问。</p>
+
+<!-- ==================== 板块一：模块认知 ==================== -->
+<h2>一、模块认知（确认你理解序列对象在推理引擎里的角色）</h2>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">1</span>
+    <span class="qt">在一个 LLM 推理引擎里，请求级对象通常承担什么职责？为什么不能只拿一串 token 数组往下传？</span>
+    <span class="tg tg-sys">工程</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：考察是否理解 Sequence 不是简单数据容器，而是调度与执行的控制平面对象</div>
+    <div class="al">参考答案</div>
+    <p>在推理引擎里，请求级对象通常是<strong>调度、缓存和生成过程的统一状态载体</strong>，不只是 token 容器。</p>
+    <ul>
+      <li><strong>内容状态</strong>：完整 token 序列、最新 token、prompt 长度、当前总长度</li>
+      <li><strong>生命周期状态</strong>：等待、运行、结束，供调度器和后处理阶段判断</li>
+      <li><strong>缓存状态</strong>：已命中的前缀 token 数、物理 block 映射</li>
+      <li><strong>请求级参数</strong>：温度、最大生成长度、是否忽略 EOS</li>
+    </ul>
+    <p>如果只传一串 token 数组，下游模块就得额外维护很多平行数据结构：状态表、KV block 映射表、采样参数表、完成条件表。这样模块之间耦合会很高，也更容易出现索引错位。</p>
+    <p>我当前的实现里把这些状态集中到一个 <code>Sequence</code> 对象里，由它作为 Scheduler 和 ModelRunner 之间的主数据结构。</p>
+    <div class="fu">这个对象里你觉得哪些字段属于“核心状态”，哪些字段其实可以放到别的模块里？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">2</span>
+    <span class="qt">为什么一个请求对象通常要做成显式状态机，而不是靠多个布尔标记拼出来？</span>
+    <span class="tg tg-sys">工程</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：考察状态建模能力，以及对调度流程的抽象是否清楚</div>
+    <div class="al">参考答案</div>
+    <p>显式状态机的优点是<strong>状态集合有限、迁移路径清晰、无效组合更少</strong>。例如等待、运行、结束是互斥状态，而多个布尔值很容易出现非法组合，比如“既在运行又已结束”。</p>
+    <p>在我的实现里用 <code>enum class SequenceStatus</code> 表示状态，当前有三态：</p>
+    <ul>
+      <li><strong>WAITING</strong>：还没被调度</li>
+      <li><strong>RUNNING</strong>：已经拿到 block 并参与执行</li>
+      <li><strong>FINISHED</strong>：满足停止条件，等待回收或输出</li>
+    </ul>
+    <p>这样调度器逻辑会更直接，例如 <code>is_finished()</code> 只判断一个枚举值，不需要检查一堆 flag 的组合。</p>
+    <div class="fu">如果后面需要支持“被抢占”“已取消”“发生错误”这些状态，你会扩枚举还是拆成多层状态机？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">3</span>
+    <span class="qt">为什么请求对象在 prefill 和 decode 阶段关注的状态不一样？</span>
+    <span class="tg tg-llm">LLM</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：确认候选人理解 prefill/decode 的执行特征差异，而不是只会写 append</div>
+    <div class="al">参考答案</div>
+    <p><strong>Prefill</strong> 阶段关注的是整段 prompt：需要知道完整 token 序列、prompt 长度、是否有 prefix cache 命中、需要为多少 token 写 KV Cache。</p>
+    <p><strong>Decode</strong> 阶段通常每轮每个序列只新增 1 个 token，所以更关注最新 token、当前长度、最后一个物理 slot、是否需要新 block。</p>
+    <p>因此请求对象里通常既要保留完整序列，也要有便于 decode 快速访问的派生状态。我当前保留了完整 <code>token_ids</code>，同时维护 <code>last_token</code>，这样 decode 时不用每次再去取最后一个元素并做额外转换。</p>
+    <div class="fu">如果后面支持 speculative decoding，一轮可能确认多个 token，这个对象的接口要怎么变？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">4</span>
+    <span class="qt">为什么要把“prompt 长度”和“当前总长度”分开记录？</span>
+    <span class="tg tg-llm">LLM</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：看是否理解生成长度、完成条件和输出切片的关系</div>
+    <div class="al">参考答案</div>
+    <p>因为推理阶段很多逻辑其实只关心<strong>completion 部分</strong>，而不是整个序列：</p>
+    <ul>
+      <li>停止条件一般按“已经生成了多少 token”判断，而不是看总长度</li>
+      <li>输出给用户时，通常只返回 completion，不返回原始 prompt</li>
+      <li>一些统计指标如生成长度、平均 decode 轮数，也都依赖 completion 长度</li>
+    </ul>
+    <p>所以我实现里把 <code>num_prompt_tokens</code> 和 <code>num_tokens</code> 分开，进一步提供 <code>num_completion_tokens()</code>。这样一来停止条件和输出切片都可以 $O(1)$ 地得到，不需要每次重新推导。</p>
+    <div class="fu">如果后面支持 mid-sequence insertion 或编辑式生成，这种“prompt/生成”二分还成立吗？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">5</span>
+    <span class="qt">做分页 KV Cache 时，为什么请求对象里通常要保存一份逻辑到物理页的映射？</span>
+    <span class="tg tg-llm">LLM</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：确认候选人把 Sequence 和 PagedAttention 联系起来了</div>
+    <div class="al">参考答案</div>
+    <p>因为序列的 token 顺序是<strong>逻辑连续</strong>的，但物理 KV Cache block 往往是<strong>离散分配</strong>的。请求对象必须知道“第 0 个逻辑块映射到哪个物理块，第 1 个逻辑块映射到哪个物理块”。</p>
+    <p>没有这份映射，调度器无法回收 block，模型执行器也无法准备 block table 给 attention kernel。</p>
+    <p>我当前实现里用 <code>block_table</code> 保存物理 block ID 列表，后续 BlockManager 分配和回收时都会读写这个列表。这个设计的好处是：Sequence 自己知道“我占了哪些页”，而 BlockManager 负责“这些页怎么分配出来”。</p>
+    <div class="fu">你会把 block table 放在 Sequence 里，还是放在 BlockManager 里做外部索引？为什么？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">6</span>
+    <span class="qt">你怎么理解“前缀已经命中的 token 数”这个状态？它为什么不能简单等同于当前长度？</span>
+    <span class="tg tg-llm">LLM</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：考察对 prefix cache 命中语义的理解</div>
+    <div class="al">参考答案</div>
+    <p>“已缓存 token 数”表示这条序列里<strong>不需要重新计算</strong>的前缀长度，它是 prefix caching / prompt caching 里的关键元数据。</p>
+    <p>它不能等同于当前长度，因为：</p>
+    <ul>
+      <li>一条序列可能只有前半段命中缓存，后半段仍需 prefill</li>
+      <li>最后一个不完整 block 往往不会提前注册为可复用缓存</li>
+      <li>decode 阶段当前长度会不断增长，但命中部分不一定同步增长</li>
+    </ul>
+    <p>所以我实现里把 <code>num_cached_tokens</code> 单独存下来，并提供 <code>num_cached_blocks()</code>。后续 prefill 时只需要对未命中的 suffix 部分做真实计算。</p>
+    <div class="fu">如果前缀命中只命中了整块，而没命中最后一个残缺块，这对输入准备有什么影响？</div>
+  </div></div>
+</div>
+
+<!-- ==================== 板块二：工程设计 ==================== -->
+<h2>二、工程设计（C++ 能力和接口设计）</h2>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">7</span>
+    <span class="qt">为什么请求对象通常需要全局唯一 ID？直接用队列下标或者对象地址不行吗？</span>
+    <span class="tg tg-sys">工程</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：考察对象标识、日志追踪和多模块协作的设计意识</div>
+    <div class="al">参考答案</div>
+    <p>队列下标和对象地址都不稳定：</p>
+    <ul>
+      <li><strong>队列下标会变化</strong>：调度、抢占、重排后原下标失效</li>
+      <li><strong>对象地址不适合作为外部协议</strong>：序列化、多进程、日志追踪都不可靠</li>
+      <li><strong>唯一 ID 便于关联</strong>：日志、调度器、输出顺序、监控指标都可以统一以 seq_id 为键</li>
+    </ul>
+    <p>我现在用一个全局 <code>std::atomic&lt;int64_t&gt;</code> 生成自增 ID，保证单进程内并发构造时不会冲突。这个方案简单、可预测、测试也容易写。</p>
+    <div class="fu">如果未来要做多进程甚至多机推理，自增整数 ID 还够用吗？你会怎么扩展？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">8</span>
+    <span class="qt">这种高频核心对象的内存所有权你会怎么设计？是持有外部引用，还是自己拥有一份数据？</span>
+    <span class="tg tg-cpp">C++</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：考察值语义、所有权和生命周期设计是否清晰</div>
+    <div class="al">参考答案</div>
+    <p>对 Sequence 这种生命周期可能跨多个模块、多个 step 的对象，我更倾向于让它<strong>拥有自己的 token 存储</strong>，而不是借用外部缓冲区。</p>
+    <p>原因是：</p>
+    <ul>
+      <li>外部引用容易悬空，尤其请求是在 API 层临时构造的</li>
+      <li>调度器可能长期持有该对象，借用外部内存风险很大</li>
+      <li>拥有自己的存储更利于序列化、测试和跨模块传递</li>
+    </ul>
+    <p>我当前构造函数按值接收 <code>std::vector&lt;int32_t&gt;</code>，再 move 到成员里，本质上是一个比较稳妥的 value-or-move 设计：调用方如果能 move 就零拷贝转移，否则至少对象内部拥有独立副本。</p>
+    <div class="fu">如果 prompt 非常长，频繁复制 token 向量会有成本，你会怎么进一步优化这个接口？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">9</span>
+    <span class="qt">如果序列需要按固定页大小切分成多个逻辑块，你会把这类辅助逻辑放在哪一层？</span>
+    <span class="tg tg-sys">工程</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：看候选人是否会把“对象自描述能力”和“管理器职责”分开</div>
+    <div class="al">参考答案</div>
+    <p>我会把“序列如何按逻辑块划分”放在 Sequence 自身，因为这属于对象的<strong>自描述能力</strong>；而“物理块怎么分配、回收、复用”放在 BlockManager。</p>
+    <p>所以在当前实现里：</p>
+    <ul>
+      <li><code>num_blocks()</code>、<code>last_block_num_tokens()</code>、<code>block(i)</code> 负责逻辑切片</li>
+      <li><code>block_table</code> 则连接到后续的物理分配</li>
+    </ul>
+    <p>这样做的好处是职责清晰：Sequence 只知道“我被切成了几段”，BlockManager 才知道“这些段映射到了哪些物理 block”。</p>
+    <div class="fu">如果后面 block size 不再是编译期常量，而是运行时配置，这个接口怎么改最自然？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">10</span>
+    <span class="qt">按块取 token 切片时，返回一份新的数组和返回视图，各自有什么 trade-off？</span>
+    <span class="tg tg-cpp">C++</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：考察 API 易用性和性能意识</div>
+    <div class="al">参考答案</div>
+    <p>当前我的 <code>block(i)</code> 返回一个新的 <code>std::vector&lt;int32_t&gt;</code>，优点是接口简单、安全、调用方不用关心底层生命周期；缺点是会产生拷贝。</p>
+    <p>如果改成视图，比如 <code>std::span</code> 或一对迭代器：</p>
+    <ul>
+      <li><strong>优点</strong>：零拷贝，更适合高频路径</li>
+      <li><strong>缺点</strong>：调用方必须保证底层容器在视图使用期间不被修改或释放</li>
+    </ul>
+    <p>对当前第 1 步基础设施来说，返回副本更稳妥；如果后面 BlockManager 高频调用这条路径，可能会考虑改成 <code>span</code> 或通过回调访问切片，减少不必要拷贝。</p>
+    <div class="fu">如果你改成 <code>std::span</code>，空序列和越界场景的错误处理策略会怎么调整？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">11</span>
+    <span class="qt">一个请求对象里应该不应该直接塞 GPU tensor、显存指针或者执行器内部状态？</span>
+    <span class="tg tg-sys">工程</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：考察模块边界和分层意识</div>
+    <div class="al">参考答案</div>
+    <p>一般不应该。请求对象更适合作为<strong>控制平面对象</strong>，保存逻辑状态和少量元数据，而不是直接混入执行层资源。</p>
+    <p>如果把 GPU tensor、KV cache 指针、CUDA stream 之类都塞进去，会带来几个问题：</p>
+    <ul>
+      <li>对象和执行器强耦合，测试会变难</li>
+      <li>多卡、多进程、序列化都更复杂</li>
+      <li>资源生命周期不清晰，容易发生重复释放或悬挂引用</li>
+    </ul>
+    <p>我现在的 Sequence 只保留逻辑状态，如 token 序列、状态机、block 映射和采样参数，没有引入 GPU 资源，这样更符合分层设计。</p>
+    <div class="fu">那像 block_table 这种“偏执行层”的信息为什么可以放在 Sequence 里？边界在哪？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">12</span>
+    <span class="qt">这种核心基础对象的单元测试，你觉得最少应该覆盖哪些边界？</span>
+    <span class="tg tg-sys">工程</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：考察测试思维，而不是只会测 happy path</div>
+    <div class="al">参考答案</div>
+    <p>我会至少覆盖下面几类：</p>
+    <ul>
+      <li><strong>构造正确性</strong>：初始状态、prompt 长度、last token、采样参数拷贝是否正确</li>
+      <li><strong>唯一 ID</strong>：连续创建对象时 ID 单调递增且不重复</li>
+      <li><strong>块切分逻辑</strong>：整块、非整块、缓存块数量、最后一块长度</li>
+      <li><strong>越界行为</strong>：非法 block 索引应抛异常</li>
+      <li><strong>追加 token</strong>：长度、最后 token、completion token 数是否同步更新</li>
+      <li><strong>空 prompt</strong>：长度为 0 时各辅助函数是否仍然安全</li>
+    </ul>
+    <p>我这次的测试基本也就是围绕这些点写的，所以第 1 步能比较放心地收口。</p>
+    <div class="fu">如果后面这个对象再加上序列化、抢占恢复、取消请求，你的测试组织方式要怎么演进？</div>
+  </div></div>
+</div>
+
+<!-- ==================== 板块三：实战与扩展 ==================== -->
+<h2>三、实战与扩展（开放题，考察经验广度和演进能力）</h2>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">13</span>
+    <span class="qt">如果要把请求对象跨进程或跨卡传输，你会怎么设计它的序列化协议？</span>
+    <span class="tg tg-sys">工程</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：考察是否理解控制面数据在分布式场景下的带宽成本</div>
+    <div class="al">参考答案</div>
+    <p>一个实用原则是：<strong>prefill 传全量，decode 传增量</strong>。</p>
+    <ul>
+      <li>prefill 阶段通常需要完整 prompt，所以可以传完整 token 序列和必要元数据</li>
+      <li>decode 阶段每轮只新增 1 个 token，没必要每次都重传整条历史</li>
+    </ul>
+    <p>所以架构文档里也明确提了：decode 场景只传最新 token 和必要状态，而不是完整 <code>token_ids</code>。这样能显著减少控制面的序列化开销。</p>
+    <p>如果后面真要做多卡，我会把 Sequence 序列化成固定头部 + 可变长 token 区域的二进制格式，而不是直接依赖 C++ 对象内存布局。</p>
+    <div class="fu">哪些字段是必须传的，哪些字段可以在接收端重新推导出来？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">14</span>
+    <span class="qt">如果一个请求被调度器抢占然后稍后恢复，这个对象最少要保留哪些信息？</span>
+    <span class="tg tg-llm">LLM</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：考察对 preemption 恢复语义的理解</div>
+    <div class="al">参考答案</div>
+    <p>最少需要保留四类信息：</p>
+    <ul>
+      <li><strong>内容</strong>：完整 token 序列或至少可重建当前上下文的信息</li>
+      <li><strong>进度</strong>：当前总长度、prompt 长度、已生成长度</li>
+      <li><strong>缓存关系</strong>：已缓存 token 数、block 映射</li>
+      <li><strong>请求参数</strong>：采样温度、最大 token 数、EOS 策略等</li>
+    </ul>
+    <p>如果这些信息丢了，被抢占的序列就无法无损恢复。Sequence 的价值就在于它把这些状态聚合起来，使得“放回 waiting 队列”这种操作在概念上成立。</p>
+    <div class="fu">抢占恢复后你是倾向保留原 seq_id，还是生成一个新的请求 ID？为什么？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">15</span>
+    <span class="qt">如果一个请求已经有部分前缀命中缓存，调度器应该怎么利用这个信息减少 prefill 成本？</span>
+    <span class="tg tg-llm">LLM</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：把 Sequence 元数据和后续执行路径连接起来</div>
+    <div class="al">参考答案</div>
+    <p>调度器和输入准备阶段都应该把“已命中的前缀”当成<strong>已经完成的工作量</strong>：</p>
+    <ul>
+      <li>prefill 的 query 部分只处理未命中的 suffix</li>
+      <li>key 长度仍然是完整上下文长度，因为 attention 需要看到完整历史</li>
+      <li>slot mapping 只为新写入的 token 生成，而不是为全部 token 生成</li>
+    </ul>
+    <p>这也是为什么 Sequence 里既要有完整 token 序列，也要有 <code>num_cached_tokens</code> 和 <code>num_cached_blocks()</code> 这样的辅助状态。它们直接决定 prefill 的真实工作量。</p>
+    <div class="fu">如果只命中到倒数第二个完整 block，最后一个残缺 block 没命中，输入准备应该怎么拼接？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">16</span>
+    <span class="qt">随着请求越来越长，这个对象本身会出现哪些性能或内存问题？</span>
+    <span class="tg tg-cpp">C++</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：考察是否会提前想到长序列下的数据结构成本</div>
+    <div class="al">参考答案</div>
+    <p>几个典型问题：</p>
+    <ul>
+      <li><strong>token 向量增长</strong>：<code>append_token</code> 长期运行会导致 <code>token_ids</code> 越来越大，占用 CPU 内存</li>
+      <li><strong>block 列表增长</strong>：上下文越长，block_table 越长</li>
+      <li><strong>复制开销</strong>：如果频繁返回 block 副本，长序列下会产生额外内存带宽消耗</li>
+      <li><strong>缓存局部性</strong>：非常长的向量在某些访问模式下缓存命中率会下降</li>
+    </ul>
+    <p>当前 Sequence 还属于基础版，优先清晰正确；如果后面优化性能，可以考虑 reserve、span、压缩存储或把历史 token 转入更适合长序列的结构。</p>
+    <div class="fu">如果业务只关心最终文本，不需要保留完整中间历史，你会如何减小这个对象的常驻内存？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">17</span>
+    <span class="qt">并发环境下，这种对象在唯一 ID 和状态更新上会遇到哪些线程安全问题？</span>
+    <span class="tg tg-cpp">C++</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：考察候选人能否区分“部分线程安全”和“整体线程安全”</div>
+    <div class="al">参考答案</div>
+    <p>当前实现里，<strong>只有 ID 生成这一点是线程安全的</strong>，因为用了 <code>std::atomic&lt;int64_t&gt;</code>。但这不代表整个 Sequence 对象是并发安全的。</p>
+    <p>例如下面这些操作都不是天然线程安全的：</p>
+    <ul>
+      <li><code>append_token()</code> 修改 <code>token_ids</code> 和 <code>num_tokens</code></li>
+      <li>调度器更新状态枚举</li>
+      <li>BlockManager 修改 <code>block_table</code> 和缓存计数</li>
+    </ul>
+    <p>所以更合理的做法通常是：把 Sequence 视为由调度线程串行操作的对象，而不是让多个线程同时写它。只有像全局 ID 分配这种 truly shared 的全局资源，才值得单独做原子保护。</p>
+    <div class="fu">如果未来要支持多线程调度，是给 Sequence 加锁，还是改成 actor / owner-thread 模型？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">18</span>
+    <span class="qt">回顾你实现的这个请求对象，你觉得目前最大的不足是什么？如果重做一次会优先改哪几点？</span>
+    <span class="tg tg-sys">工程</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：看自省能力，以及是否能识别当前实现和目标架构之间的差距</div>
+    <div class="al">参考答案</div>
+    <p>我会比较坦诚地讲几个不足：</p>
+    <ul>
+      <li><strong>状态机还偏简单</strong>：只有 WAITING/RUNNING/FINISHED，后面可能需要 PREEMPTED / ABORTED / ERROR</li>
+      <li><strong>block 接口还有拷贝</strong>：当前返回 vector，后面如果进入热路径可能要优化</li>
+      <li><strong>线程安全边界没写进接口</strong>：实现上默认串行使用，但代码层面没有显式表达</li>
+      <li><strong>还没有序列化协议</strong>：多卡控制面需要时还得继续补</li>
+      <li><strong>字段还比较“裸”</strong>：后面可能会再封一层只读访问接口，减少外部随意改状态</li>
+    </ul>
+    <p>如果重做一次，我会优先补两件事：一是把状态迁移设计得更完整，二是把和 BlockManager / Scheduler 交互的边界提前定义好，这样后续扩展时改动面会更小。</p>
+  </div></div>
+</div>
+
+<footer>
+  AI Infra 面试题 — Sequence 模块 — 18 题 — 面试官视角：资深 AI Infra 工程师（不了解项目细节）
+</footer>
+
+</body>
+</html>

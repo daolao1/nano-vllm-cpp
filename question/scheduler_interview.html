@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Infra 面试题 — Scheduler 模块</title>
+<style>
+  :root {
+    --bg: #0d1117; --card: #161b22; --border: #30363d;
+    --text: #c9d1d9; --muted: #8b949e; --heading: #f0f6fc;
+    --accent: #58a6ff; --green: #3fb950; --orange: #d29922; --red: #f85149; --purple: #d2a8ff;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif; background:var(--bg); color:var(--text); line-height:1.7; padding:2rem; max-width:920px; margin:0 auto; }
+  h1 { color:var(--heading); font-size:1.8rem; border-bottom:1px solid var(--border); padding-bottom:.6rem; }
+  .sub { color:var(--muted); margin-bottom:2rem; font-size:.88rem; }
+  h2 { color:var(--heading); font-size:1.15rem; margin:2.2rem 0 .7rem; padding:.4rem .7rem; border-left:3px solid var(--accent); background:#111820; border-radius:0 6px 6px 0; }
+  .q { background:var(--card); border:1px solid var(--border); border-radius:8px; margin-bottom:.65rem; overflow:hidden; transition:border-color .2s; }
+  .q:hover { border-color:var(--accent); }
+  .qh { display:flex; align-items:center; gap:.5rem; padding:.65rem 1rem; cursor:pointer; user-select:none; }
+  .qh:hover { background:#1c2128; }
+  .qn { color:var(--muted); font-family:monospace; font-size:.8rem; min-width:1.8rem; }
+  .qt { flex:1; font-weight:500; color:var(--heading); font-size:.9rem; }
+  .tg { display:inline-block; font-size:.62rem; padding:.08rem .4rem; border-radius:10px; font-weight:600; text-transform:uppercase; }
+  .tg-llm { background:#1a2332; color:var(--accent); border:1px solid #1f3a5f; }
+  .tg-sys { background:#1f2d1a; color:var(--green); border:1px solid #2d4020; }
+  .tg-cpp { background:#2d2410; color:var(--orange); border:1px solid #4d3800; }
+  .tg-gpu { background:#2a1f36; color:var(--purple); border:1px solid #3d2e52; }
+  .tg-math { background:#2d1a1a; color:var(--red); border:1px solid #5f1f1f; }
+  .arr { color:var(--muted); transition:transform .2s; font-size:.72rem; }
+  .q.open .arr { transform:rotate(90deg); }
+  .qb { display:none; padding:0 1rem .8rem; border-top:1px solid var(--border); }
+  .q.open .qb { display:block; }
+  .a { margin-top:.5rem; }
+  .al { color:var(--green); font-weight:600; font-size:.75rem; text-transform:uppercase; margin-bottom:.25rem; }
+  .a p { font-size:.87rem; margin:.25rem 0; }
+  .a strong { color:var(--heading); }
+  .a code { font-family:'SFMono-Regular',Consolas,monospace; background:#1a2030; padding:.1rem .3rem; border-radius:4px; font-size:.8rem; color:#e6edf3; }
+  .a pre { background:#0d1117; border:1px solid var(--border); border-radius:6px; padding:.6rem .8rem; margin:.4rem 0; overflow-x:auto; font-family:monospace; font-size:.78rem; line-height:1.5; }
+  .a ul { padding-left:1.2rem; margin:.25rem 0; }
+  .a li { font-size:.87rem; margin:.12rem 0; }
+  .a ol { padding-left:1.2rem; margin:.25rem 0; }
+  .fu { background:#111820; border-left:2px solid var(--orange); padding:.35rem .7rem; margin-top:.45rem; border-radius:0 4px 4px 0; font-size:.8rem; }
+  .fu::before { content:"深入追问 → "; color:var(--orange); font-weight:600; }
+  .scenario { color:var(--muted); font-size:.82rem; font-style:italic; margin-bottom:.4rem; padding:.3rem .5rem; background:#111418; border-radius:4px; }
+  footer { margin-top:2.5rem; padding-top:.8rem; border-top:1px solid var(--border); color:var(--muted); font-size:.78rem; text-align:center; }
+</style>
+</head>
+<body>
+
+<h1>AI Infra 面试题</h1>
+<p class="sub">面试官身份：AI Infra 资深工程师。不了解你的项目细节，围绕“你实现了一个 LLM 推理引擎的调度器”提问。</p>
+
+<h2>一、模块定位（确认你理解 Scheduler 不是简单队列）</h2>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">1</span>
+    <span class="qt">在一个 LLM 推理引擎里，调度器的职责到底是什么？为什么不能只是维护一个请求队列然后顺序执行？</span>
+    <span class="tg tg-sys">工程</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：判断你是否把调度器理解成“队列管理器”，还是理解成吞吐、时延和显存约束下的决策中心</div>
+    <div class="al">参考答案</div>
+    <p>调度器的核心职责不是“存请求”，而是<strong>在每一轮 step 里决定哪些序列进入执行，以及它们以什么模式执行</strong>。</p>
+    <ul>
+      <li><strong>批次形成</strong>：从 waiting/running 中挑选本轮要跑的序列</li>
+      <li><strong>模式选择</strong>：区分 prefill 还是 decode</li>
+      <li><strong>资源协调</strong>：和 BlockManager 协作判断是否有足够的 KV block</li>
+      <li><strong>生命周期推进</strong>：在 postprocess 阶段推进序列状态，必要时回收资源</li>
+    </ul>
+    <p>如果只是顺序执行请求，吞吐会很差，也无法支持 continuous batching、prefix cache、抢占和显存回收。</p>
+    <p>我当前实现里的 <code>Scheduler</code> 直接持有 waiting/running 两个队列，并在 <code>schedule()</code> 里做两阶段调度，而不是仅做 FIFO 出队。</p>
+    <div class="fu">如果系统目标从吞吐优先改成 tail latency 优先，你觉得调度器要改哪些策略？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">2</span>
+    <span class="qt">为什么调度器必须知道 KV Cache 的资源状态？把“排队”和“显存管理”完全拆开不行吗？</span>
+    <span class="tg tg-gpu">GPU</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：考察你是否理解推理调度和显存分配是强耦合关系</div>
+    <div class="al">参考答案</div>
+    <p>在 LLM 推理里，请求能不能执行不是只看“前面排了几个”，而是看<strong>本轮是否能拿到对应的 KV Cache 资源</strong>。</p>
+    <p>Prefill 要先为序列建立 block table，decode 则要判断追加一个 token 后是否需要新 block。所以调度器必须在调度决策时查询：</p>
+    <ul>
+      <li><code>can_allocate()</code>：prefill 前能否为整条序列建立初始 block</li>
+      <li><code>can_append()</code>：decode 前能否承受潜在的新 block 需求</li>
+      <li><code>allocate()/may_append()/deallocate()</code>：执行前后更新资源状态</li>
+    </ul>
+    <p>如果把排队和显存管理完全拆开，调度器就可能选出一批根本无法执行的序列，最后还得二次回滚，系统复杂度会更高。</p>
+    <div class="fu">这层耦合会不会导致调度器职责过重？你会怎么控制接口边界？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">3</span>
+    <span class="qt">为什么 prefill 和 decode 要分成两套调度逻辑，而不是统一成“每轮挑一批 token”这么简单？</span>
+    <span class="tg tg-llm">LLM</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：确认你理解 prefill 和 decode 的计算形态、资源消耗和输入组织方式不同</div>
+    <div class="al">参考答案</div>
+    <p>因为两者的工作负载完全不同。</p>
+    <ul>
+      <li><strong>Prefill</strong>：通常一次处理整段 prompt，输入 token 数多，可能命中 prefix cache，主要关注总 token 数</li>
+      <li><strong>Decode</strong>：每轮每序列通常只处理 1 个 token，但会持续很多轮，主要关注活动序列数和 append block 的可行性</li>
+    </ul>
+    <p>这会影响 batching 方式、BlockManager 交互方式、甚至 ModelRunner 的输入准备。我的实现里 <code>schedule()</code> 先尝试 prefill，只有本轮没有任何 prefill 可做时才进入 decode 路径。</p>
+    <div class="fu">如果以后支持 chunked prefill，你会如何重构这两个阶段的边界？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">4</span>
+    <span class="qt">为什么很多系统会采用“有新请求就优先 prefill”的策略？这样不会拖慢已经在 decode 的请求吗？</span>
+    <span class="tg tg-llm">LLM</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：看你是否理解 prefill 优先背后的吞吐和用户感知时延权衡</div>
+    <div class="al">参考答案</div>
+    <p>prefill 优先的原因通常是：<strong>新请求只有完成 prefill 之后才有资格进入稳定 decode</strong>。如果始终让 decode 占满系统，新请求首 token latency 会非常差。</p>
+    <p>我当前实现采用的就是这个策略：只要 waiting 里能调度出至少一个 prefill 序列，就直接返回 prefill batch，不再继续 decode。</p>
+    <p>它确实可能让 decode 序列多等一轮，但换来的是更好的新请求接入能力和更稳定的整体吞吐。这个 tradeoff 很典型。</p>
+    <div class="fu">如果发现 decode 被饿死，你会改成时间片、配额，还是双队列配比？为什么？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">5</span>
+    <span class="qt">为什么调度器通常同时需要“最大序列数”和“最大 token 数”两个上限？只保留一个不够吗？</span>
+    <span class="tg tg-sys">工程</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：考察你是否理解 batch 维度和 token 维度对计算成本的不同影响</div>
+    <div class="al">参考答案</div>
+    <p>不够，因为这两个维度约束的不是同一件事。</p>
+    <ul>
+      <li><strong>最大序列数</strong>限制的是 batch 中有多少条活动请求，主要影响 decode 和一些按序列组织的元数据</li>
+      <li><strong>最大 token 数</strong>限制的是本轮总计算量，尤其影响 prefill 的算力和显存带宽压力</li>
+    </ul>
+    <p>如果只按序列数限制，可能出现少量超长 prompt 把一次 prefill 打爆；如果只按 token 数限制，又可能在 decode 场景下塞进过多活动序列，导致调度和元数据膨胀。</p>
+    <p>我这里分别用了 <code>max_num_seqs_</code> 和 <code>max_num_batched_tokens_</code> 两个阈值。</p>
+    <div class="fu">这两个阈值你会静态配置，还是按运行时压力动态调整？</div>
+  </div></div>
+</div>
+
+<h2>二、调度策略（确认你理解 schedule / preempt / postprocess 的控制流）</h2>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">6</span>
+    <span class="qt">你会怎么描述一轮 schedule 的主流程？</span>
+    <span class="tg tg-sys">工程</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：考察你能不能清楚讲出调度循环，而不是只记住几个接口名</div>
+    <div class="al">参考答案</div>
+    <p>我会把一轮调度分成两个阶段：</p>
+    <ol>
+      <li>先从 waiting 队列头部开始尝试 prefill，检查 token 上限和 <code>can_allocate()</code></li>
+      <li>如果本轮成功选出任意 prefill 序列，直接返回这些序列和 <code>is_prefill=true</code></li>
+      <li>如果没有可做的 prefill，再进入 decode，从 running 队列头部取序列</li>
+      <li>decode 前先检查 <code>can_append()</code>，不够就从 running 队尾挑受害者做抢占</li>
+      <li>可以继续时调用 <code>may_append()</code>，把该序列纳入本轮 decode batch</li>
+    </ol>
+    <p>最终返回的是 <code>(scheduled_seqs, is_prefill)</code>，由 ModelRunner 决定按哪条执行路径准备输入。</p>
+    <div class="fu">你这里为什么选择“先完整尝试 prefill，再完整尝试 decode”，而不是混合批次？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">7</span>
+    <span class="qt">prefill 计入 batch token 数时，为什么要扣掉 prefix cache 已命中的 token？</span>
+    <span class="tg tg-gpu">GPU</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：确认你理解 prefix caching 改变的是“本轮实际计算量”，不是逻辑序列长度</div>
+    <div class="al">参考答案</div>
+    <p>因为 batch token 上限要约束的是<strong>本轮真正要送进模型计算的 token 数</strong>，而不是序列逻辑长度。</p>
+    <p>如果前缀已经命中缓存，这部分 KV 已经存在，不需要重新 prefill。所以我的实现里在 prefill 路径中累加的是：</p>
+    <pre>num_batched_tokens += seq-&gt;len() - seq-&gt;num_cached_tokens</pre>
+    <p>这样调度器对计算量的估计才接近真实成本，也能让 prefix cache 真正转化成吞吐收益。</p>
+    <div class="fu">如果只扣整 block 命中的 token，而最后一个不完整 block 不扣，你觉得这个估算偏差大吗？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">8</span>
+    <span class="qt">decode 阶段为什么不是每次都要分配新 block？什么时候才真的会新增 KV 页？</span>
+    <span class="tg tg-gpu">GPU</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：检查你是否理解 block append 的边界条件</div>
+    <div class="al">参考答案</div>
+    <p>因为一个 block 里可以容纳一段连续 token。decode 每轮虽然追加 1 个 token，但<strong>只有当前 token 跨入新 block 时才需要新分配</strong>。</p>
+    <p>在这个实现里，是否需要新 block 取决于 <code>len() % BLOCK_SIZE</code>。如果新 token 让位置落到一个新的 block 起点，才真正需要从 free list 里拿一个 block；否则只是继续写当前 block。</p>
+    <p>这也是为什么 decode 前不是直接分配，而是先调用 <code>can_append()</code> 评估“本轮可能需要的新 block”。</p>
+    <div class="fu">为什么 <code>may_append()</code> 的名字不是 <code>append_block()</code>？这个命名反映了什么语义？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">9</span>
+    <span class="qt">当 decode 时发现显存页不够，为什么系统会选择抢占，而不是简单阻塞等待？</span>
+    <span class="tg tg-sys">工程</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：考察你对在线服务里阻塞、回退和资源让渡的理解</div>
+    <div class="al">参考答案</div>
+    <p>因为在线推理里“阻塞等待资源”通常没有明确的释放时点。一个序列不往前跑，就不会产生 EOS，也就不会自然释放自己的 block，系统可能陷入整体停滞。</p>
+    <p>抢占的本质是：<strong>主动让一部分运行中的序列退回 waiting，回收它们占用的 block，让另一部分序列继续推进</strong>。这样系统至少能持续前进。</p>
+    <p>我当前实现的 <code>preempt()</code> 会把序列状态设回 WAITING，调用 <code>block_manager_.deallocate()</code> 释放 block，然后把它重新插回 waiting 队首。</p>
+    <div class="fu">被抢占后重新 prefill 的计算浪费，你会怎么向面试官解释这是可以接受的？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">10</span>
+    <span class="qt">为什么这里选择 LIFO 抢占，也就是优先抢占最近加入 running 的序列？</span>
+    <span class="tg tg-sys">工程</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：看你是否能讲清策略背后的直觉，而不只是照着代码复述</div>
+    <div class="al">参考答案</div>
+    <p>LIFO 的直觉是：<strong>越早进入 running 的序列，通常已经跑了更多轮，离完成更近</strong>。优先保住它们，系统更容易尽快释放一批资源。</p>
+    <p>相反，最近加入 running 的序列往往推进得更少，被抢占的沉没成本更低。所以 decode 阶段资源不足时，我是从 <code>running_</code> 队尾拿受害者，而不是从队头拿。</p>
+    <p>这也是测试里专门覆盖的行为：当 block 不够时，被抢占的是最新进入 running 的那个序列。</p>
+    <div class="fu">有没有场景下 FIFO 抢占或者按剩余长度抢占会更合理？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">11</span>
+    <span class="qt">被抢占的序列为什么要回到 waiting，而不是留在 running 里再打个 paused 标记？</span>
+    <span class="tg tg-sys">工程</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：考察你对状态机简化和后续重调度路径的理解</div>
+    <div class="al">参考答案</div>
+    <p>回到 waiting 的好处是<strong>统一重入路径</strong>。一旦 block 被释放，这条序列下次再回来时，本质上就要重新走一次“能否重新拿到资源并被调度”的流程。</p>
+    <p>如果继续留在 running 再额外挂一个 paused 状态，调度器后面就得区分：</p>
+    <ul>
+      <li>真正可 decode 的 running</li>
+      <li>资源已经被收走、但逻辑上还算 running 的 paused</li>
+    </ul>
+    <p>这样队列语义会复杂很多。当前实现直接把它退回 WAITING，队列含义更干净。</p>
+    <div class="fu">如果以后支持 swap-out 到 CPU 内存，你还会让它回 waiting 吗？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">12</span>
+    <span class="qt">postprocess 为什么属于调度器职责，而不是模型执行器直接改序列状态？</span>
+    <span class="tg tg-sys">工程</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：确认你知道执行平面和控制平面的职责边界</div>
+    <div class="al">参考答案</div>
+    <p>因为 ModelRunner 负责的是<strong>给定一批序列，执行模型并产出 token</strong>；而“这个 token 产出之后序列是否结束、是否要回收 block、是否还留在 running”属于控制平面逻辑。</p>
+    <p>所以我把这些收口到 <code>postprocess()</code>：</p>
+    <ul>
+      <li>把新 token append 到序列</li>
+      <li>检查 EOS / <code>max_tokens</code></li>
+      <li>若结束则标记 FINISHED 并释放 block</li>
+      <li>把已结束序列从 running 队列移除</li>
+    </ul>
+    <p>这样 ModelRunner 不需要关心队列和状态迁移，模块边界更清晰。</p>
+    <div class="fu">如果后面需要记录吞吐、每轮时延、完成原因，你会把统计打点放在 postprocess 还是更上层？</div>
+  </div></div>
+</div>
+
+<h2>三、工程实现（确认你真正做过 C++ 版落地，而不只是复述 Python 伪代码）</h2>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">13</span>
+    <span class="qt">如果在 C++ 里既想把序列放进容器，又想在队列里保存它们的指针，最容易踩的坑是什么？</span>
+    <span class="tg tg-cpp">C++</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：判断你是否真正考虑过对象生命周期和指针稳定性</div>
+    <div class="al">参考答案</div>
+    <p>最大的坑是<strong>容器扩容或元素移动导致指针失效</strong>。如果一边在队列里存 <code>Sequence*</code>，一边又把对象本体放在会搬家的容器里，后面很容易悬空。</p>
+    <p>架构文档里最初是更简化的草图，但我实际落地时没有直接用“拥有对象的 deque 再配指针队列”，而是额外引入了独立所有权容器。</p>
+    <div class="fu">除了悬空指针，这种设计还可能带来哪些隐藏问题，比如 erase、重排或异常安全？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">14</span>
+    <span class="qt">你在 C++ 版里是怎么保证调度队列里的序列指针稳定的？</span>
+    <span class="tg tg-cpp">C++</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：这题直接看你有没有真正实现过，而不是只知道理论流程</div>
+    <div class="al">参考答案</div>
+    <p>我最后采用的是：</p>
+    <ul>
+      <li>用 <code>std::list&lt;Sequence&gt; sequences_</code> 作为拥有对象的主容器</li>
+      <li>用 <code>std::deque&lt;Sequence*&gt;</code> 维护 <code>waiting_</code> 和 <code>running_</code></li>
+    </ul>
+    <p>新请求通过 <code>add(Sequence)</code> move 进 <code>sequences_</code>，然后把 <code>&amp;sequences_.back()</code> 放进 waiting 队列。因为 <code>std::list</code> 节点地址稳定，所以队列里的指针可以长期有效。</p>
+    <p>这是一个典型的 C++ 工程化修正：逻辑上遵循原始调度算法，但实现上补足对象生命周期安全。</p>
+    <div class="fu">如果后面需要彻底删除 FINISHED 的序列，你会在什么时机从 <code>sequences_</code> 擦除？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">15</span>
+    <span class="qt">调度器里“结束条件”的判断通常有哪些坑？</span>
+    <span class="tg tg-llm">LLM</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：看你是否考虑过 EOS、ignore_eos 和 max_tokens 之间的组合关系</div>
+    <div class="al">参考答案</div>
+    <p>常见坑有三个：</p>
+    <ul>
+      <li><strong>EOS 判断和 ignore_eos 冲突</strong>：如果用户要求忽略 EOS，就不能提前停</li>
+      <li><strong>max_tokens 是 completion 长度，不是总长度</strong></li>
+      <li><strong>先 append 再判断</strong>：因为当前轮产出的 token 也属于生成结果</li>
+    </ul>
+    <p>我在 <code>postprocess()</code> 里是先 <code>append_token()</code>，再检查：</p>
+    <pre>(!seq-&gt;ignore_eos &amp;&amp; token_id == eos_) ||
+seq-&gt;num_completion_tokens() == seq-&gt;max_tokens</pre>
+    <p>满足条件就标记 FINISHED 并回收 block。</p>
+    <div class="fu">如果支持 stop words、多 token 终止串，结束判断会落在哪一层？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">16</span>
+    <span class="qt">你会怎么验证这个调度器实现是对的？至少要覆盖哪些测试场景？</span>
+    <span class="tg tg-sys">工程</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：考察你是否真的把设计落成了可验证的代码</div>
+    <div class="al">参考答案</div>
+    <p>我会优先覆盖三类场景，这也是我当前测试文件里的主线：</p>
+    <ul>
+      <li><strong>Prefill 优先</strong>：已有 decode 序列时，新请求进入后应优先返回 prefill batch</li>
+      <li><strong>显存不足触发抢占</strong>：decode 阶段 block 不够时，最新 running 序列应被抢占回 waiting</li>
+      <li><strong>postprocess 正确结束并回收资源</strong>：命中 EOS 后状态变 FINISHED，block_table 清空，资源可被后续序列复用</li>
+    </ul>
+    <p>除了这些，我还会补边界测试，比如空队列、只能抢占自己、prefix cache 命中后 batched token 统计是否正确等。</p>
+    <div class="fu">如果线上出现“偶发性卡死”，你第一反应会加哪类断言或日志？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">17</span>
+    <span class="qt">如果后面支持 speculative decoding，这个 Scheduler 的接口大概率要怎么演进？</span>
+    <span class="tg tg-llm">LLM</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：看你能否从当前实现出发，推演下一阶段系统演进方向</div>
+    <div class="al">参考答案</div>
+    <p>现在的接口默认每轮每个序列只确认 1 个 token，所以 <code>postprocess()</code> 直接接收一组标量 token。</p>
+    <p>如果支持 speculative decoding，一轮里同一个序列可能确认多个 token，那至少要变两点：</p>
+    <ul>
+      <li><strong>执行结果表示</strong>：从“每序列一个 token”变成“每序列一段已确认 token”</li>
+      <li><strong>资源维护</strong>：一次 postprocess 中可能跨越多个 block 边界，可能多次触发 append 逻辑</li>
+    </ul>
+    <p>届时更合适的接口可能是按序列返回一个结构体，里面包含 confirmed tokens、是否回退、以及额外统计信息，而不是只传 <code>vector&lt;int32_t&gt;</code>。</p>
+    <div class="fu">你觉得 speculative decoding 更应该改动 Scheduler，还是更应该改动 ModelRunner 和 postprocess 协议？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">18</span>
+    <span class="qt">这个调度器现在最明显的局限是什么？如果让你继续演进，你会先做哪一步？</span>
+    <span class="tg tg-sys">工程</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：看你是否能客观评价当前实现，而不是把它包装成“最终最优解”</div>
+    <div class="al">参考答案</div>
+    <p>当前实现的优点是清晰、可验证，但局限也很明显：</p>
+    <ul>
+      <li>prefill 优先可能导致 decode 饥饿</li>
+      <li>抢占策略只有 LIFO，一刀切，缺少基于代价的选择</li>
+      <li>没有 chunked prefill，也没有分层配额</li>
+      <li>postprocess 只支持每轮 1 token 的简单协议</li>
+    </ul>
+    <p>如果继续演进，我会优先做两件事之一：</p>
+    <ol>
+      <li>加入更细粒度的公平性策略，比如给 decode 保留最低配额</li>
+      <li>把 batch 形成逻辑从“二选一”扩展到更接近线上系统的混合策略</li>
+    </ol>
+    <p>这样既能保留现在的清晰控制流，也能更贴近真实服务场景。</p>
+    <div class="fu">如果只能选一个指标优化，你会优先首 token latency、tokens/s，还是 P99？</div>
+  </div></div>
+</div>
+
+<footer>
+  Scheduler 面试题页。建议回答时先讲调度目标，再讲当前实现里的具体控制流和边界条件。
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Infra 面试题 — BlockManager 模块</title>
+<style>
+  :root {
+    --bg: #0d1117; --card: #161b22; --border: #30363d;
+    --text: #c9d1d9; --muted: #8b949e; --heading: #f0f6fc;
+    --accent: #58a6ff; --green: #3fb950; --orange: #d29922; --red: #f85149; --purple: #d2a8ff;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif; background:var(--bg); color:var(--text); line-height:1.7; padding:2rem; max-width:920px; margin:0 auto; }
+  h1 { color:var(--heading); font-size:1.8rem; border-bottom:1px solid var(--border); padding-bottom:.6rem; }
+  .sub { color:var(--muted); margin-bottom:2rem; font-size:.88rem; }
+  h2 { color:var(--heading); font-size:1.15rem; margin:2.2rem 0 .7rem; padding:.4rem .7rem; border-left:3px solid var(--accent); background:#111820; border-radius:0 6px 6px 0; }
+  .q { background:var(--card); border:1px solid var(--border); border-radius:8px; margin-bottom:.65rem; overflow:hidden; transition:border-color .2s; }
+  .q:hover { border-color:var(--accent); }
+  .qh { display:flex; align-items:center; gap:.5rem; padding:.65rem 1rem; cursor:pointer; user-select:none; }
+  .qh:hover { background:#1c2128; }
+  .qn { color:var(--muted); font-family:monospace; font-size:.8rem; min-width:1.8rem; }
+  .qt { flex:1; font-weight:500; color:var(--heading); font-size:.9rem; }
+  .tg { display:inline-block; font-size:.62rem; padding:.08rem .4rem; border-radius:10px; font-weight:600; text-transform:uppercase; }
+  .tg-llm { background:#1a2332; color:var(--accent); border:1px solid #1f3a5f; }
+  .tg-sys { background:#1f2d1a; color:var(--green); border:1px solid #2d4020; }
+  .tg-cpp { background:#2d2410; color:var(--orange); border:1px solid #4d3800; }
+  .tg-gpu { background:#2a1f36; color:var(--purple); border:1px solid #3d2e52; }
+  .tg-math { background:#2d1a1a; color:var(--red); border:1px solid #5f1f1f; }
+  .arr { color:var(--muted); transition:transform .2s; font-size:.72rem; }
+  .q.open .arr { transform:rotate(90deg); }
+  .qb { display:none; padding:0 1rem .8rem; border-top:1px solid var(--border); }
+  .q.open .qb { display:block; }
+  .a { margin-top:.5rem; }
+  .al { color:var(--green); font-weight:600; font-size:.75rem; text-transform:uppercase; margin-bottom:.25rem; }
+  .a p { font-size:.87rem; margin:.25rem 0; }
+  .a strong { color:var(--heading); }
+  .a code { font-family:'SFMono-Regular',Consolas,monospace; background:#1a2030; padding:.1rem .3rem; border-radius:4px; font-size:.8rem; color:#e6edf3; }
+  .a pre { background:#0d1117; border:1px solid var(--border); border-radius:6px; padding:.6rem .8rem; margin:.4rem 0; overflow-x:auto; font-family:monospace; font-size:.78rem; line-height:1.5; }
+  .a ul { padding-left:1.2rem; margin:.25rem 0; }
+  .a li { font-size:.87rem; margin:.12rem 0; }
+  .a ol { padding-left:1.2rem; margin:.25rem 0; }
+  .fu { background:#111820; border-left:2px solid var(--orange); padding:.35rem .7rem; margin-top:.45rem; border-radius:0 4px 4px 0; font-size:.8rem; }
+  .fu::before { content:"深入追问 → "; color:var(--orange); font-weight:600; }
+  .scenario { color:var(--muted); font-size:.82rem; font-style:italic; margin-bottom:.4rem; padding:.3rem .5rem; background:#111418; border-radius:4px; }
+  .formula { background:#0d1117; border:1px solid var(--border); border-radius:6px; padding:.5rem .8rem; margin:.4rem 0; font-family:monospace; font-size:.83rem; color:var(--heading); text-align:center; }
+  footer { margin-top:2.5rem; padding-top:.8rem; border-top:1px solid var(--border); color:var(--muted); font-size:.78rem; text-align:center; }
+</style>
+</head>
+<body>
+
+<h1>AI Infra 面试题</h1>
+<p class="sub">面试官身份：AI Infra 资深工程师。不了解你的项目细节，围绕“你实现了一个 LLM 推理引擎里的页式 KV Cache 管理模块”提问。题目使用通用领域语言，参考答案再结合你当前的 BlockManager 实现展开。</p>
+
+<h2>一、基础认知（确认你理解页式 KV Cache 和前缀复用的核心原理）</h2>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">1</span>
+    <span class="qt">你说你做了页式 KV Cache 管理，为什么不直接给每条请求分一大段连续显存，而要切成固定大小的页？</span>
+    <span class="tg tg-llm">LLM</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：考察是否理解 PagedAttention 背后的资源管理动机，而不是只会实现一个 free list</div>
+    <div class="al">参考答案</div>
+    <p>连续分配的主要问题是<strong>浪费和不可伸缩</strong>。如果每条请求都按最大长度预留一整段 KV Cache，那么短请求也会占掉大量无效空间，显存利用率很差；而且序列在 decode 中逐 token 增长，连续扩容会涉及拷贝或复杂的内存搬移。</p>
+    <p>固定大小分页的好处有三点：</p>
+    <ul>
+      <li><strong>按需分配</strong>：序列增长多少 token 就拿多少页，尾部最多只浪费一个页的剩余空间</li>
+      <li><strong>便于回收和共享</strong>：前缀命中时多个序列可以共享同一个物理页</li>
+      <li><strong>便于调度</strong>：调度器只需要判断当前还剩多少页，而不是管理大段连续区间</li>
+    </ul>
+    <p>我当前实现里就是把 KV Cache 资源抽象成固定大小的 block，由 Sequence 维护逻辑 block 列表，再由 BlockManager 决定这些逻辑块映射到哪些物理页。</p>
+    <div class="fu">页大小设大还是设小有什么 trade-off？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">2</span>
+    <span class="qt">在这种设计里，为什么要把“逻辑 token 序列”和“物理页分配”分成两层，而不是让执行器直接按 token 下标找地址？</span>
+    <span class="tg tg-sys">工程</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：考察 Sequence 和 BlockManager 的职责边界是否清楚</div>
+    <div class="al">参考答案</div>
+    <p>因为 token 的逻辑顺序和 KV 的物理落点不是一回事。序列对上层来说是连续的，但页式分配下物理页是离散的。如果不显式分层，下游每个模块都得知道如何从 token 下标推回物理页，耦合会很重。</p>
+    <p>我当前的分层是：</p>
+    <ul>
+      <li><strong>Sequence</strong>：负责完整 token 序列、逻辑切块、缓存前缀长度、物理页映射表</li>
+      <li><strong>BlockManager</strong>：负责全局页池、分配/回收、hash 索引、引用计数</li>
+      <li><strong>执行器</strong>：消费 <code>block_table</code> 和 <code>slot_mapping</code> 去准备 attention 输入</li>
+    </ul>
+    <p>这样 Sequence 是控制平面对象，BlockManager 是资源管理器，执行器只读这些元数据，不负责维护它们。</p>
+    <div class="fu">如果把 block table 挪到 BlockManager 里做外部索引，会带来什么问题？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">3</span>
+    <span class="qt">你怎么向别人解释“前缀复用”这件事？为什么它复用的是连续前缀，而不是某几个恰好内容相同的页？</span>
+    <span class="tg tg-llm">LLM</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：确认候选人真正理解 prefix cache 的语义，而不是只背了一个哈希表</div>
+    <div class="al">参考答案</div>
+    <p>前缀复用的本质是：<strong>如果两条请求在开头一段上下文完全相同，那么这一段上下文对应的 KV 就不需要重复计算</strong>。因为 attention 里的 K/V 只由历史 token 决定，相同历史就会产生相同 KV。</p>
+    <p>但它必须是<strong>连续前缀</strong>，不能跳着复用。原因是 attention 的上下文是有顺序的，如果中间某一页不一致，后面的页即使单独 token 内容一样，它对应的“前文历史”也已经不同了，不能再被视作同一段上下文。</p>
+    <p>我在实现里用 hash chain 强化这个约束：一旦某一页 miss，后面全部按 miss 处理，不会出现“中间断掉又继续命中”的情况。</p>
+    <div class="fu">如果想做到比“整页连续前缀”更细粒度的复用，你会想到什么数据结构？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">4</span>
+    <span class="qt">为什么这类前缀缓存通常只缓存完整页，而不会急着把最后一个残缺页也注册成可复用缓存？</span>
+    <span class="tg tg-llm">LLM</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：考察对“稳定缓存单元”和 decode 增长语义的理解</div>
+    <div class="al">参考答案</div>
+    <p>因为残缺页的内容还没稳定。decode 阶段后续 token 继续追加时，最后一页会不断变化；如果过早把它注册到缓存索引里，后面每次追加都要更新 hash 和索引，管理复杂度明显增加。</p>
+    <p>主流工程实现通常选择“只缓存完整页”，代价是最多损失一个页粒度的复用精度，但换来简单、稳定和易验证。</p>
+    <p>我当前实现也是这样：只有完整 block 才计算 hash；最后一个残缺 block 会把 hash 设成无效值，所以 prefix cache 只能命中到最后一个完整块。</p>
+    <div class="fu">如果一个请求已经结束，最后那个残缺页还要不要想办法也缓存下来？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">5</span>
+    <span class="qt">哈希链在这里到底解决了什么问题？如果每个页单独做哈希，不也能查重吗？</span>
+    <span class="tg tg-math">数学</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：确认候选人理解 hash chain 的必要性，而不是把它当成普通 hash table</div>
+    <div class="al">参考答案</div>
+    <p>单页哈希只能回答“这一个页内容是不是一样”，但回答不了“到这一页为止的整段前缀是不是一样”。哈希链就是把前缀历史编码进当前页。</p>
+    <div class="formula">h_i = Hash(h_{i-1}, tokens_i)</div>
+    <p>这样当前页的 hash 不只依赖当前页 token，还依赖前一个页的 hash，也就间接依赖整个前缀。结果就是：</p>
+    <ul>
+      <li>如果前缀不同，即使某一页 token 内容恰好相同，hash 也不同</li>
+      <li>只有当“从开头到这一页”为止都相同，当前 hash 才会相同</li>
+    </ul>
+    <p>我当前实现用 xxhash64 做这个链式哈希，完整 block 才会进入链。</p>
+    <div class="fu">如果改成 Merkle tree 或 trie，这个问题会怎么变化？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">6</span>
+    <span class="qt">页式管理器产出的页表，最后是怎么被模型执行路径消费的？它为什么不只是调度器内部的 bookkeeping？</span>
+    <span class="tg tg-gpu">GPU</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：把元数据设计和后续 attention 执行路径真正连起来</div>
+    <div class="al">参考答案</div>
+    <p>页表不是只给调度器看的，它会一路传到输入准备和 attention kernel。执行链路通常是：</p>
+    <ol>
+      <li>Sequence 保存逻辑 block 到物理 block 的映射</li>
+      <li>输入准备阶段根据这份映射生成 <code>block_tables</code> 和 <code>slot_mapping</code></li>
+      <li>attention kernel 根据 block table 去读历史 KV，根据 slot mapping 去写新 KV</li>
+    </ol>
+    <p>所以 block_table 是把“控制平面上的页分配”转换成“执行平面上的访存地址”的桥梁。没有它，prefix cache 命中了哪些历史页、suffix 该写到哪些物理 slot，都没法准确表达。</p>
+    <div class="fu">如果只命中到倒数第二个完整页，最后一个残缺页没命中，输入准备应该怎么切 query 和 key 长度？</div>
+  </div></div>
+</div>
+
+<h2>二、工程设计（页池、索引和生命周期管理）</h2>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">7</span>
+    <span class="qt">你会给“一个物理页”设计哪些元数据？每个字段是为了解决什么问题？</span>
+    <span class="tg tg-sys">工程</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：考察抽象能力，看候选人能不能把页对象的职责说清楚</div>
+    <div class="al">参考答案</div>
+    <p>我当前的物理页元数据主要有四类：</p>
+    <ul>
+      <li><strong>页号</strong>：标识这是全局页池里的第几个 block</li>
+      <li><strong>引用计数</strong>：支持多个请求共享同一前缀页</li>
+      <li><strong>hash</strong>：作为 prefix cache 的快速索引 key</li>
+      <li><strong>token 内容</strong>：用于哈希命中后的二次校验，防止 collision 导致误复用</li>
+    </ul>
+    <p>注意物理页对象不需要直接持有所有层的显存指针；在更完整的系统里，页号通常就足够让执行器定位对应层上的 KV 切片。</p>
+    <div class="fu">如果后面想进一步压缩元数据开销，哪个字段你最先考虑优化？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">8</span>
+    <span class="qt">为什么需要引用计数？用一个简单的“是否占用”标记不行吗？</span>
+    <span class="tg tg-sys">工程</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：考察是否真的把共享前缀场景考虑进去了</div>
+    <div class="al">参考答案</div>
+    <p>布尔占用标记只适合“一个资源同一时刻最多一个 owner”的场景，但 prefix cache 命中后，同一个物理页可能被多条序列共享。</p>
+    <p>典型场景是两条请求有相同的 prompt 前缀。第二条请求命中前缀后，不会复制一份 KV，而是直接复用第一条请求对应的物理页。这时释放任何一条请求都不能把这页回收，必须等所有引用都结束。</p>
+    <p>所以我当前实现里页对象维护 <code>ref_count</code>，只有降到 0 才会回到 free 队列。</p>
+    <div class="fu">如果未来要做并发分配，这个引用计数要不要改成原子？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">9</span>
+    <span class="qt">一个页被 free 之后，什么叫“真正删除”？是在 free 的瞬间就擦掉，还是等下次复用时再覆盖？</span>
+    <span class="tg tg-sys">工程</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：考察候选人对资源回收和缓存保留语义的区分</div>
+    <div class="al">参考答案</div>
+    <p>在这类实现里，free 通常表示“从活跃引用里移除”，不一定表示“立刻擦除内容”。更细地说有两层状态：</p>
+    <ul>
+      <li><strong>活跃使用</strong>：还有序列引用它，不能回收</li>
+      <li><strong>free 但仍 cache-resident</strong>：没人引用了，但内容和 hash 还在，后续相同前缀可能重新命中它</li>
+    </ul>
+    <p>我当前实现里就是这样：deallocate 只是在 ref_count 归零时把页号放回 free 队列，并没有立刻清掉 hash 索引；真正 reset 元数据是在这个页号被重新分配给新内容时发生的。</p>
+    <div class="fu">这种“free 但仍保留旧内容”的设计，风险点在哪里？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">10</span>
+    <span class="qt">只凭 hash 命中就直接复用一个页，你觉得安全吗？如果两个不同内容碰巧 hash 一样怎么办？</span>
+    <span class="tg tg-math">数学</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：确认候选人不会为了省一点比较就牺牲正确性</div>
+    <div class="al">参考答案</div>
+    <p>只比 hash 不够安全。正确做法是：</p>
+    <ol>
+      <li>先用 hash 快速定位候选页</li>
+      <li>再用页内 token 内容做最终确认</li>
+    </ol>
+    <p>这样 hash collision 最多让命中率变差，不会让错误 KV 被复用。我的实现里就是这么做的：哈希表只给出一个候选 block_id，随后还会比较保存下来的 token_ids 是否完全一致，不一致就按 miss 处理。</p>
+    <p>之所以这个额外比较不算太慢，是因为比较范围只是一页固定大小的 token，不是把所有历史请求整段扫一遍。</p>
+    <div class="fu">如果后面页大小很大，或者担心 hash collision 导致命中率下降，你会怎么改索引结构？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">11</span>
+    <span class="qt">在 decode 阶段，为什么要区分“最后一页刚好填满”和“新 token 刚跨到下一页”这两个瞬间？</span>
+    <span class="tg tg-llm">LLM</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：考察是否理解 decode 下页状态变化的边界条件</div>
+    <div class="al">参考答案</div>
+    <p>因为这两个瞬间对应的是完全不同的维护动作：</p>
+    <ul>
+      <li><strong>刚好填满</strong>：当前残缺页从“不可缓存”变成“稳定可缓存”，应该注册 hash</li>
+      <li><strong>刚跨页</strong>：说明上一页已经满了，新的 token 需要一个新物理页</li>
+    </ul>
+    <p>如果不把这两个边界拆开，页的 hash 注册时机和扩容时机就会混在一起，很容易出错。我的实现里 <code>may_append</code> 就是按余数的不同分支处理：一个分支负责新开页，一个分支负责把刚填满的页提升为可复用缓存。</p>
+    <div class="fu">如果后面支持 speculative decoding，一次接受多个 token，这个接口哪里会首先失效？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">12</span>
+    <span class="qt">当页池资源不足时，你更倾向于扩容、等待还是抢占？怎么取舍？</span>
+    <span class="tg tg-sys">工程</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：考察调度策略和资源约束意识，而不是把问题推给显存自动扩容</div>
+    <div class="al">参考答案</div>
+    <p>在线推理里通常不会在运行时动态扩容 GPU KV Cache，因为显存池一般在启动时就按预算一次性申请完了。运行期更常见的是：</p>
+    <ul>
+      <li><strong>prefill 放不下</strong>：新请求先留在 waiting 队列里，等页释放</li>
+      <li><strong>decode 追加放不下</strong>：抢占一部分 running 序列，释放其页资源</li>
+      <li><strong>极端场景</strong>：如果单条请求本身就放不下，需要准入时拒绝或截断</li>
+    </ul>
+    <p>我当前实现就是固定页池 + backpressure/preempt 的思路，没有做运行期扩容。</p>
+    <div class="fu">如果要支持 CPU swap 或 NVMe offload，你觉得 BlockManager 的职责要不要扩展？</div>
+  </div></div>
+</div>
+
+<h2>三、实战与扩展（把当前实现和更复杂的生产问题连接起来）</h2>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">13</span>
+    <span class="qt">如果现在所有页都被占用了，新来的请求放不进去，你的系统会怎么处理？</span>
+    <span class="tg tg-sys">工程</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：确认候选人把 BlockManager 和调度器的协作关系讲清楚了</div>
+    <div class="al">参考答案</div>
+    <p>在固定页池设计下，新请求不会硬塞进去，也不会临时扩容。更合理的流程是：</p>
+    <ol>
+      <li>prefill 阶段先做容量检查</li>
+      <li>如果当前空闲页不够，新请求停留在 waiting 队列</li>
+      <li>系统继续服务已经 running 的序列</li>
+      <li>等旧请求结束释放页，或者 decode 阶段通过 preempt 腾出页，再重新尝试调度</li>
+    </ol>
+    <p>我当前实现里的 <code>can_allocate</code> 是比较保守的，它按整条序列所需页数来估算，不提前把潜在的 prefix cache 命中节省量算进去。这保证简单和安全，但会牺牲一点可调度性。</p>
+    <div class="fu">如果你想把这一步做得更激进一些，会如何在调度前预估“实际新增页数”？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">14</span>
+    <span class="qt">一个已经 free 的页，如果旧内容还留在显存里，后续请求还能不能重新命中它？</span>
+    <span class="tg tg-llm">LLM</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：考察对“释放活跃引用”和“驱逐缓存内容”两个概念的区分</div>
+    <div class="al">参考答案</div>
+    <p>可以，只要这页还没被新内容覆盖，而且 hash 和 token 内容仍然匹配。free 只表示当前没有活跃请求引用它，不代表它的缓存价值已经消失。</p>
+    <p>我当前实现里就是这种语义：页 free 后如果以后又有相同前缀的请求到来，hash 表还能把它找出来；如果该页目前不在 used 集合，就把同一个页号重新激活。只有当它被重新分配给别的内容时，旧元数据才会 reset 并失效。</p>
+    <div class="fu">这种做法和传统 LRU 缓存相比，少了哪一层能力？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">15</span>
+    <span class="qt">多卡张量并行时，页号空间应该怎么定义？是每层局部编号，还是全局编号？</span>
+    <span class="tg tg-gpu">GPU</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：看候选人是否把页号、层维度、rank 边界想清楚了</div>
+    <div class="al">参考答案</div>
+    <p>更自然的做法是：<strong>在单个 rank 的 KV cache 池内，页号是全局编号</strong>；层维度由 KV cache 张量的另一维来表达，不需要每层再维护一套独立页号。</p>
+    <p>这样一个逻辑 block 对应的是“每一层上同编号的一组页”。Sequence 里只需要一份 <code>block_table</code>，执行层再通过当前层号和 block_id 去定位本层的 K/V 存储。</p>
+    <p>如果是 tensor parallel，多卡之间各自有本 rank 的 KV cache 池，所以页号通常是 per-rank global，而不是整个集群唯一。</p>
+    <div class="fu">如果不同 rank 的可用页数不一样，这套设计会遇到什么麻烦？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">16</span>
+    <span class="qt">如果后面要支持 speculative decoding，一轮可能确认多个 token，这套页管理接口哪些地方要先改？</span>
+    <span class="tg tg-llm">LLM</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：考察候选人能不能识别当前实现里的“每轮只增 1 token”假设</div>
+    <div class="al">参考答案</div>
+    <p>当前这类简化实现通常默认 decode 每轮每序列只增 1 个 token，所以几个接口都隐含了单步假设：</p>
+    <ul>
+      <li>Sequence 的追加接口只接受 1 个 token</li>
+      <li>页池只判断“最多会不会多 1 个新页”</li>
+      <li>刚填满页和刚跨页的分支只覆盖单 token 边界</li>
+    </ul>
+    <p>如果支持 speculative decoding，接口应该改成接受变长 token 列表：追加接口要支持多 token，<code>can_append</code> 和 <code>may_append</code> 要按“本轮确认 K 个 token 需要几页”来计算，还要能一次注册多个刚填满的完整页。</p>
+    <div class="fu">如果本轮只确认了 draft 的前 2 个 token，后 3 个被拒了，页状态回滚怎么设计？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">17</span>
+    <span class="qt">这种页式缓存管理器，你觉得单元测试最少该覆盖哪些行为，才能比较有把握？</span>
+    <span class="tg tg-sys">工程</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：考察是否有把资源管理模块当成“行为规格”来测，而不是只测 happy path</div>
+    <div class="al">参考答案</div>
+    <p>我会至少覆盖这几类：</p>
+    <ul>
+      <li><strong>哈希行为</strong>：同输入稳定、不同输入不同、prefix 不同导致 hash chain 不同</li>
+      <li><strong>分配/释放</strong>：单页、多页、页池满时拒绝分配</li>
+      <li><strong>前缀命中</strong>：共享前缀会复用页，不共享前缀不会误命中</li>
+      <li><strong>引用计数</strong>：共享页只在最后一个引用释放后才真正回收</li>
+      <li><strong>decode 边界</strong>：未满页追加、跨页追加、刚填满页注册 hash</li>
+      <li><strong>边界输入</strong>：单 token 序列、残缺页、不完整尾页不会被缓存</li>
+    </ul>
+    <p>我当前的测试文件基本也就是沿着这些行为写的，尤其把 prefix hit、deallocate 回收和 decode 边界都单独拆了测试。</p>
+    <div class="fu">如果你再补一轮测试，会优先加随机化 fuzz 还是更细的并发测试？为什么？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">18</span>
+    <span class="qt">回看你现在这个页管理模块，如果让你自己挑一个“先保证正确、以后再优化”的点，你会选哪里？</span>
+    <span class="tg tg-sys">工程</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：看候选人是否能客观评价当前实现的保守点和下一步演进方向</div>
+    <div class="al">参考答案</div>
+    <p>我会先提三个现在刻意保守的点，再说明取舍：</p>
+    <ul>
+      <li><strong>can_allocate 比较保守</strong>：按整条序列所需页数估算，没有提前扣掉潜在 prefix cache 命中带来的节省</li>
+      <li><strong>block(i) 返回副本</strong>：实现简单安全，但有额外拷贝，后面可改成 <code>span</code> 之类的视图</li>
+      <li><strong>没有独立 eviction 策略</strong>：free 但可复用的页依赖“何时被覆盖”自然失效，还没做 LRU/TTL 这类缓存治理</li>
+    </ul>
+    <p>这些都是“第 1 步先把正确性和接口语义打牢”的取舍。等调度器、执行器、压测都接起来之后，再看热点决定优化优先级会更稳。</p>
+    <div class="fu">如果只能做一个优化，你会优先改哪一项？为什么不是另外两项？</div>
+  </div></div>
+</div>
+
+<footer>
+  BlockManager 面试题页。建议打开浏览器逐题展开，先自己口头回答，再对照参考答案检查是否讲到了分页、前缀复用、生命周期、调度协作和扩展性。
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>nano-vllm-cpp Config 参数文档</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --card: #161b22;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --text-muted: #8b949e;
+    --heading: #f0f6fc;
+    --accent: #58a6ff;
+    --accent2: #3fb950;
+    --accent3: #d2a8ff;
+    --tag-bg: #1f2937;
+    --tag-text: #7ee787;
+    --warn-bg: #2d1b00;
+    --warn-border: #9e6a03;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    padding: 2rem;
+    max-width: 960px;
+    margin: 0 auto;
+  }
+  h1 {
+    color: var(--heading);
+    font-size: 2rem;
+    margin-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.8rem;
+  }
+  h1 span { color: var(--accent); }
+  .subtitle {
+    color: var(--text-muted);
+    margin-bottom: 2.5rem;
+    font-size: 0.95rem;
+  }
+  h2 {
+    color: var(--heading);
+    font-size: 1.4rem;
+    margin: 2rem 0 1rem;
+    padding-left: 0.6rem;
+    border-left: 3px solid var(--accent);
+  }
+  h2.hf { border-left-color: var(--accent3); }
+  .param {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.2rem;
+    margin-bottom: 0.8rem;
+    transition: border-color 0.2s;
+  }
+  .param:hover { border-color: var(--accent); }
+  .param-header {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.4rem;
+  }
+  .param-name {
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    font-size: 1.05rem;
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .param-name.hf { color: var(--accent3); }
+  .tag {
+    display: inline-block;
+    font-size: 0.7rem;
+    padding: 0.1rem 0.5rem;
+    border-radius: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .tag-type {
+    background: #1a2332;
+    color: var(--accent);
+    border: 1px solid #1f3a5f;
+  }
+  .tag-default {
+    background: #122117;
+    color: var(--accent2);
+    border: 1px solid #1a4028;
+  }
+  .tag-required {
+    background: #3d1416;
+    color: #f85149;
+    border: 1px solid #6e2b2d;
+  }
+  .tag-computed {
+    background: #2a1f36;
+    color: var(--accent3);
+    border: 1px solid #3d2e52;
+  }
+  .param-desc {
+    color: var(--text);
+    font-size: 0.92rem;
+    margin-top: 0.3rem;
+  }
+  .param-desc strong { color: var(--heading); }
+  .note {
+    background: var(--warn-bg);
+    border: 1px solid var(--warn-border);
+    border-radius: 6px;
+    padding: 0.6rem 1rem;
+    margin-top: 0.5rem;
+    font-size: 0.85rem;
+    color: #e3b341;
+  }
+  .note::before { content: "⚠ "; }
+  code {
+    font-family: 'SFMono-Regular', Consolas, monospace;
+    background: #1a2030;
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+    font-size: 0.88rem;
+    color: #e6edf3;
+  }
+  .diagram {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.2rem;
+    margin: 1.5rem 0;
+    font-family: monospace;
+    font-size: 0.85rem;
+    white-space: pre;
+    overflow-x: auto;
+    color: var(--text-muted);
+    line-height: 1.5;
+  }
+  .toc {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.5rem;
+    margin-bottom: 2rem;
+  }
+  .toc-title { color: var(--heading); font-weight: 600; margin-bottom: 0.5rem; }
+  .toc a {
+    color: var(--accent);
+    text-decoration: none;
+    font-size: 0.92rem;
+  }
+  .toc a:hover { text-decoration: underline; }
+  .toc ul { list-style: none; padding-left: 1rem; }
+  .toc > ul { padding-left: 0; }
+  .toc li { margin: 0.2rem 0; }
+  .toc li::before {
+    content: "›";
+    color: var(--text-muted);
+    margin-right: 0.4rem;
+  }
+  .section-desc {
+    color: var(--text-muted);
+    font-size: 0.92rem;
+    margin-bottom: 1rem;
+  }
+  footer {
+    margin-top: 3rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<h1><span>nano-vllm-cpp</span> Config 参数文档</h1>
+<p class="subtitle">基于 Qwen3 架构的 LLM 推理引擎配置参数详解 &mdash; include/core/config.h</p>
+
+<div class="toc">
+  <div class="toc-title">目录</div>
+  <ul>
+    <li><a href="#overview">总览：数据流向</a></li>
+    <li><a href="#config">Config — 引擎运行时配置</a></li>
+    <li><a href="#hfconfig">HFConfig — 模型架构配置（来自 config.json）</a></li>
+    <li><a href="#sampling">SamplingParams — 采样参数</a></li>
+    <li><a href="#validation">参数校验规则</a></li>
+  </ul>
+</div>
+
+<!-- ==================== Overview ==================== -->
+<h2 id="overview">总览：数据流向</h2>
+<div class="diagram">
+HuggingFace 模型目录
+├── config.json          ──→  <span style="color:#d2a8ff">HFConfig</span>（模型架构参数）
+├── *.safetensors        ──→  权重加载器
+└── tokenizer.json       ──→  Tokenizer
+
+用户参数 ─────────────────→  <span style="color:#58a6ff">Config</span>（运行时参数）
+                               ├── max_model_len
+                               ├── gpu_memory_utilization
+                               └── ...
+
+每次请求 ─────────────────→  <span style="color:#3fb950">SamplingParams</span>（采样参数）
+                               ├── temperature
+                               └── max_tokens
+
+<span style="color:#58a6ff">Config</span> 贯穿整个引擎生命周期：
+  LLMEngine → Scheduler → BlockManager
+            → ModelRunner → Model layers
+</div>
+
+<!-- ==================== Config ==================== -->
+<h2 id="config">Config — 引擎运行时配置</h2>
+<p class="section-desc">控制推理引擎的资源分配、批处理策略和硬件配置。通过 <code>Config::from_model_dir()</code> 工厂方法创建。</p>
+
+<div class="param">
+  <div class="param-header">
+    <span class="param-name">model</span>
+    <span class="tag tag-type">std::string</span>
+    <span class="tag tag-required">必需</span>
+  </div>
+  <div class="param-desc">
+    HuggingFace 模型目录的本地路径。目录下必须包含 <code>config.json</code> 和 <code>*.safetensors</code> 权重文件。
+    <br>示例：<code>/home/user/huggingface/Qwen3-0.6B</code>
+  </div>
+</div>
+
+<div class="param">
+  <div class="param-header">
+    <span class="param-name">max_model_len</span>
+    <span class="tag tag-type">int</span>
+    <span class="tag tag-default">默认 4096</span>
+  </div>
+  <div class="param-desc">
+    引擎允许的<strong>最大序列长度</strong>（prompt + 生成 token 总数）。
+    会被自动截断到模型支持的上限（<code>hf_config.max_position_embeddings</code>）。
+    <br>影响：值越大，单个请求可用上下文越长，但 KV Cache 显存占用越多、可分配的 block 数越少。
+  </div>
+  <div class="note">初始化时自动执行 <code>max_model_len = min(max_model_len, hf_config.max_position_embeddings)</code></div>
+</div>
+
+<div class="param">
+  <div class="param-header">
+    <span class="param-name">max_num_seqs</span>
+    <span class="tag tag-type">int</span>
+    <span class="tag tag-default">默认 512</span>
+  </div>
+  <div class="param-desc">
+    每次 <code>step()</code> 调度的<strong>最大序列数</strong>（即最大并发 batch size）。
+    Scheduler 在 prefill 和 decode 阶段都会遵守此限制。
+    <br>影响：值越大，吞吐量越高，但单次 step 的计算量和显存占用增大。
+  </div>
+</div>
+
+<div class="param">
+  <div class="param-header">
+    <span class="param-name">max_num_batched_tokens</span>
+    <span class="tag tag-type">int</span>
+    <span class="tag tag-default">默认 16384</span>
+  </div>
+  <div class="param-desc">
+    每次 <code>step()</code> 处理的<strong>最大 token 总数</strong>。仅在 prefill 阶段起作用 — Scheduler 不断从 waiting 队列取序列，
+    直到累计 token 数超过此值。
+    <br>影响：控制 prefill 阶段的显存峰值。值越大，一次处理的 prompt 越多，但 GEMM 计算量线性增长。
+  </div>
+  <div class="note">初始化时自动确保 <code>max_num_batched_tokens &ge; max_model_len</code>（至少能处理一个最长序列）</div>
+</div>
+
+<div class="param">
+  <div class="param-header">
+    <span class="param-name">gpu_memory_utilization</span>
+    <span class="tag tag-type">float</span>
+    <span class="tag tag-default">默认 0.9</span>
+  </div>
+  <div class="param-desc">
+    GPU 显存利用率上限（0, 1]。ModelRunner 在 warmup 后根据此值计算 KV Cache 可用空间：
+    <br><code>kv_bytes = total_vram × gpu_memory_utilization - peak_usage</code>
+    <br>影响：值越高，KV Cache block 越多，可并发处理的序列越多；但留给模型计算的临时显存越少，有 OOM 风险。
+  </div>
+</div>
+
+<div class="param">
+  <div class="param-header">
+    <span class="param-name">tensor_parallel_size</span>
+    <span class="tag tag-type">int</span>
+    <span class="tag tag-default">默认 1</span>
+  </div>
+  <div class="param-desc">
+    张量并行度（TP），即使用的 GPU 数量。每张卡负责模型权重的 <code>1/tp_size</code>。
+    <br>取值范围：<strong>[1, 8]</strong>。需要 NCCL 通信。
+    <br>影响：TP=2 时每卡的 attention heads、MLP intermediate 维度减半；降低单卡显存但引入 all_reduce 通信开销。
+  </div>
+</div>
+
+<div class="param">
+  <div class="param-header">
+    <span class="param-name">enforce_eager</span>
+    <span class="tag tag-type">bool</span>
+    <span class="tag tag-default">默认 false</span>
+  </div>
+  <div class="param-desc">
+    设为 <code>true</code> 时<strong>禁用 CUDA Graph</strong>，所有 decode 步骤都用 eager 模式执行。
+    <br>影响：CUDA Graph 在 decode 阶段通过录制和重放避免 CPU 端 kernel launch 开销，通常可提速 10-30%。
+    禁用后调试更方便（CUDA Graph 对动态逻辑有限制）。
+  </div>
+</div>
+
+<div class="param">
+  <div class="param-header">
+    <span class="param-name">kvcache_block_size</span>
+    <span class="tag tag-type">int</span>
+    <span class="tag tag-default">默认 256</span>
+  </div>
+  <div class="param-desc">
+    PagedAttention 的<strong>物理页大小</strong>（每个 block 存储的 token 数）。
+    每个 block 的显存占用 = <code>2(K+V) × num_layers × block_size × kv_heads × head_dim × dtype_bytes</code>。
+    <br>影响：值越大，prefix cache 命中的粒度越粗（需要完全匹配整个 block 的 token 才能复用）；
+    值越小，内存碎片越多、block 管理开销越大。
+  </div>
+  <div class="note">必须是 256 的倍数</div>
+</div>
+
+<div class="param">
+  <div class="param-header">
+    <span class="param-name">num_kvcache_blocks</span>
+    <span class="tag tag-type">int</span>
+    <span class="tag tag-default">默认 -1</span>
+    <span class="tag tag-computed">自动计算</span>
+  </div>
+  <div class="param-desc">
+    KV Cache 的<strong>总 block 数量</strong>。由 ModelRunner 在 <code>allocate_kv_cache()</code> 中根据
+    剩余显存自动计算，用户无需设置。
+    <br>计算公式：<code>(total × gpu_util - peak_used) / block_bytes</code>
+  </div>
+</div>
+
+<div class="param">
+  <div class="param-header">
+    <span class="param-name">eos_token_id</span>
+    <span class="tag tag-type">int</span>
+    <span class="tag tag-default">默认 -1</span>
+    <span class="tag tag-computed">自动赋值</span>
+  </div>
+  <div class="param-desc">
+    End-of-Sequence token 的 ID。由 <code>from_model_dir()</code> 从 <code>hf_config.eos_token_id</code> 自动赋值。
+    Scheduler 在 <code>postprocess()</code> 中检查生成的 token 是否等于此值来判断序列结束。
+    <br>Qwen3-0.6B: <code>151645</code>
+  </div>
+</div>
+
+<!-- ==================== HFConfig ==================== -->
+<h2 id="hfconfig" class="hf">HFConfig — 模型架构配置</h2>
+<p class="section-desc">从 HuggingFace 模型目录下的 <code>config.json</code> 自动解析。描述 Transformer 模型的结构参数。</p>
+
+<div class="param">
+  <div class="param-header">
+    <span class="param-name hf">hidden_size</span>
+    <span class="tag tag-type">int</span>
+    <span class="tag tag-required">必需</span>
+  </div>
+  <div class="param-desc">
+    模型的<strong>隐藏层维度</strong>（embedding 维度）。所有 attention 和 MLP 层的输入/输出维度。
+    <br>Qwen3-0.6B: <code>1024</code> &nbsp;|&nbsp; Qwen3-1.7B: <code>2048</code> &nbsp;|&nbsp; Qwen3-8B: <code>4096</code>
+  </div>
+</div>
+
+<div class="param">
+  <div class="param-header">
+    <span class="param-name hf">num_attention_heads</span>
+    <span class="tag tag-type">int</span>
+    <span class="tag tag-required">必需</span>
+  </div>
+  <div class="param-desc">
+    Query 的<strong>注意力头数</strong>。决定了 Q 投影的输出维度 = <code>num_attention_heads × head_dim</code>。
+    TP 时按 <code>num_heads / tp_size</code> 切分到各卡。
+    <br>Qwen3-0.6B: <code>16</code>
+  </div>
+</div>
+
+<div class="param">
+  <div class="param-header">
+    <span class="param-name hf">num_key_value_heads</span>
+    <span class="tag tag-type">int</span>
+    <span class="tag tag-required">必需</span>
+  </div>
+  <div class="param-desc">
+    KV 的<strong>注意力头数</strong>（GQA — Grouped Query Attention）。
+    当 <code>num_key_value_heads &lt; num_attention_heads</code> 时，多个 Q head 共享同一组 KV head，
+    减少 KV Cache 显存占用。
+    <br>Qwen3-0.6B: <code>8</code>（每 2 个 Q head 共享 1 组 KV）
+    <br>KV Cache 大小正比于此值而非 <code>num_attention_heads</code>。
+  </div>
+</div>
+
+<div class="param">
+  <div class="param-header">
+    <span class="param-name hf">num_hidden_layers</span>
+    <span class="tag tag-type">int</span>
+    <span class="tag tag-required">必需</span>
+  </div>
+  <div class="param-desc">
+    Transformer <strong>decoder 层数</strong>。KV Cache 总量 = <code>2 × num_layers × num_blocks × block_size × kv_heads × head_dim</code>。
+    <br>Qwen3-0.6B: <code>28</code>
+  </div>
+</div>
+
+<div class="param">
+  <div class="param-header">
+    <span class="param-name hf">intermediate_size</span>
+    <span class="tag tag-type">int</span>
+    <span class="tag tag-required">必需</span>
+  </div>
+  <div class="param-desc">
+    MLP 的<strong>中间层维度</strong>。Qwen3 使用 SwiGLU 结构：<code>gate_up_proj</code> 输出维度 = <code>2 × intermediate_size</code>，
+    经过 SiluAndMul 后变回 <code>intermediate_size</code>，再由 <code>down_proj</code> 投影回 <code>hidden_size</code>。
+    <br>Qwen3-0.6B: <code>3072</code>（通常约 <code>hidden_size × 3</code>）
+  </div>
+</div>
+
+<div class="param">
+  <div class="param-header">
+    <span class="param-name hf">vocab_size</span>
+    <span class="tag tag-type">int</span>
+    <span class="tag tag-required">必需</span>
+  </div>
+  <div class="param-desc">
+    <strong>词表大小</strong>。Embedding 层和 LM Head 的第一维。TP 时按 <code>vocab_size / tp_size</code> 切分。
+    <br>Qwen3: <code>151936</code>
+  </div>
+</div>
+
+<div class="param">
+  <div class="param-header">
+    <span class="param-name hf">max_position_embeddings</span>
+    <span class="tag tag-type">int</span>
+    <span class="tag tag-required">必需</span>
+  </div>
+  <div class="param-desc">
+    模型训练时支持的<strong>最大位置编码长度</strong>。RoPE 的 cos/sin cache 预计算到此长度。
+    <code>Config.max_model_len</code> 不能超过此值。
+    <br>Qwen3-0.6B: <code>40960</code>
+  </div>
+</div>
+
+<div class="param">
+  <div class="param-header">
+    <span class="param-name hf">head_dim</span>
+    <span class="tag tag-type">int</span>
+    <span class="tag tag-default">默认 hidden_size / num_attention_heads</span>
+  </div>
+  <div class="param-desc">
+    每个注意力头的<strong>维度</strong>。决定了 RoPE 的 rotary_dim、KV Cache 每 token 每层每 head 的存储大小。
+    <br>Qwen3-0.6B: <code>128</code>（= 1024 / 16 × 2，显式指定）
+  </div>
+</div>
+
+<div class="param">
+  <div class="param-header">
+    <span class="param-name hf">rms_norm_eps</span>
+    <span class="tag tag-type">float</span>
+    <span class="tag tag-default">默认 1e-6</span>
+  </div>
+  <div class="param-desc">
+    RMSNorm 的 <strong>epsilon</strong> 值，防止除零：<code>x * rsqrt(mean(x²) + eps)</code>。
+    <br>Qwen3: <code>1e-6</code>
+  </div>
+</div>
+
+<div class="param">
+  <div class="param-header">
+    <span class="param-name hf">rope_theta</span>
+    <span class="tag tag-type">float</span>
+    <span class="tag tag-default">默认 10000.0</span>
+  </div>
+  <div class="param-desc">
+    RoPE（Rotary Position Embedding）的<strong>基底频率</strong>。
+    频率公式：<code>inv_freq = 1 / (theta ^ (2i / head_dim))</code>。
+    值越大，高频衰减越慢，理论上支持更长的上下文。
+    <br>Qwen3-0.6B: <code>1000000</code>（100万，远大于原始 Transformer 的 10000）
+  </div>
+</div>
+
+<div class="param">
+  <div class="param-header">
+    <span class="param-name hf">tie_word_embeddings</span>
+    <span class="tag tag-type">bool</span>
+    <span class="tag tag-default">默认 false</span>
+  </div>
+  <div class="param-desc">
+    是否<strong>共享 embedding 和 LM Head 权重</strong>。为 <code>true</code> 时，
+    <code>lm_head.weight</code> 直接指向 <code>embed_tokens.weight</code>，减少参数量。
+    <br>Qwen3-0.6B: <code>true</code>（小模型常用此策略）
+  </div>
+</div>
+
+<div class="param">
+  <div class="param-header">
+    <span class="param-name hf">attention_bias</span>
+    <span class="tag tag-type">bool</span>
+    <span class="tag tag-default">默认 false</span>
+  </div>
+  <div class="param-desc">
+    QKV 投影的 Linear 层是否包含 <strong>bias</strong>。
+    为 <code>false</code> 时（Qwen3），attention 启用 <strong>QK-Norm</strong>（对 Q、K 各施加 per-head RMSNorm）。
+    <br>QK-Norm 有助于稳定训练，是 Qwen3 相对于 Qwen2 的关键结构变化。
+  </div>
+</div>
+
+<div class="param">
+  <div class="param-header">
+    <span class="param-name hf">hidden_act</span>
+    <span class="tag tag-type">std::string</span>
+    <span class="tag tag-default">默认 "silu"</span>
+  </div>
+  <div class="param-desc">
+    MLP 的<strong>激活函数</strong>名称。Qwen3 使用 SwiGLU，即 <code>SiluAndMul</code>：
+    <br><code>output = silu(gate) × up</code>，其中 <code>silu(x) = x × σ(x)</code>。
+  </div>
+</div>
+
+<div class="param">
+  <div class="param-header">
+    <span class="param-name hf">torch_dtype</span>
+    <span class="tag tag-type">std::string</span>
+    <span class="tag tag-default">默认 "bfloat16"</span>
+  </div>
+  <div class="param-desc">
+    模型权重和推理计算的<strong>数据类型</strong>。决定了 KV Cache 的 dtype 和 GEMM 精度。
+    <br><code>"bfloat16"</code>：范围大（与 FP32 相同指数位），精度略低于 FP16，是大模型推理的主流选择。
+    <br>KV Cache 每 token 每层每 head 占用 = <code>head_dim × 2 bytes</code>（bf16）。
+  </div>
+</div>
+
+<div class="param">
+  <div class="param-header">
+    <span class="param-name hf">eos_token_id</span>
+    <span class="tag tag-type">int</span>
+    <span class="tag tag-default">默认 -1</span>
+  </div>
+  <div class="param-desc">
+    <strong>End-of-Sequence</strong> token ID。生成此 token 时序列标记为结束（除非 <code>ignore_eos=true</code>）。
+    <br>Qwen3: <code>151645</code>（对应 <code>&lt;|endoftext|&gt;</code>）
+  </div>
+</div>
+
+<div class="param">
+  <div class="param-header">
+    <span class="param-name hf">bos_token_id</span>
+    <span class="tag tag-type">int</span>
+    <span class="tag tag-default">默认 -1</span>
+  </div>
+  <div class="param-desc">
+    <strong>Begin-of-Sequence</strong> token ID。tokenizer 编码时可能会在序列开头插入此 token。
+    <br>Qwen3: <code>151643</code>
+  </div>
+</div>
+
+<!-- ==================== SamplingParams ==================== -->
+<h2 id="sampling">SamplingParams — 采样参数</h2>
+<p class="section-desc">每个推理请求携带的采样配置。定义在 <code>include/core/sampling_params.h</code>。</p>
+
+<div class="param">
+  <div class="param-header">
+    <span class="param-name">temperature</span>
+    <span class="tag tag-type">float</span>
+    <span class="tag tag-default">默认 1.0</span>
+  </div>
+  <div class="param-desc">
+    <strong>采样温度</strong>。Sampler 将 logits 除以此值后再做 softmax：
+    <br><code>probs = softmax(logits / temperature)</code>
+    <br>• <code>temperature → 0</code>：趋近贪心（确定性），总选概率最高的 token
+    <br>• <code>temperature = 1.0</code>：标准采样，忠实于模型分布
+    <br>• <code>temperature > 1.0</code>：更随机，分布更平坦
+  </div>
+</div>
+
+<div class="param">
+  <div class="param-header">
+    <span class="param-name">max_tokens</span>
+    <span class="tag tag-type">int</span>
+    <span class="tag tag-default">默认 64</span>
+  </div>
+  <div class="param-desc">
+    该请求最多<strong>生成的 token 数</strong>（不含 prompt）。达到此数量时序列强制结束。
+    <br><code>num_completion_tokens = num_tokens - num_prompt_tokens</code>
+  </div>
+</div>
+
+<div class="param">
+  <div class="param-header">
+    <span class="param-name">ignore_eos</span>
+    <span class="tag tag-type">bool</span>
+    <span class="tag tag-default">默认 false</span>
+  </div>
+  <div class="param-desc">
+    是否<strong>忽略 EOS token</strong>。设为 <code>true</code> 时，即使生成了 <code>eos_token_id</code> 也不终止，
+    继续生成直到 <code>max_tokens</code>。常用于 benchmark 场景测试吞吐量。
+  </div>
+</div>
+
+<!-- ==================== Validation ==================== -->
+<h2 id="validation">参数校验规则</h2>
+<p class="section-desc"><code>Config::from_model_dir()</code> 在初始化时执行以下校验：</p>
+
+<div class="param">
+  <div class="param-desc">
+    <strong>1.</strong> <code>model</code> 目录必须存在且包含 <code>config.json</code><br>
+    <strong>2.</strong> <code>kvcache_block_size % 256 == 0</code><br>
+    <strong>3.</strong> <code>1 &le; tensor_parallel_size &le; 8</code><br>
+    <strong>4.</strong> <code>0 &lt; gpu_memory_utilization &le; 1.0</code><br>
+    <strong>5.</strong> <code>max_model_len = min(max_model_len, hf_config.max_position_embeddings)</code><br>
+    <strong>6.</strong> <code>max_num_batched_tokens = max(max_num_batched_tokens, max_model_len)</code>
+  </div>
+</div>
+
+<footer>
+  nano-vllm-cpp &mdash; Config 参数文档 &mdash; 基于 Qwen3-0.6B config.json 生成
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>nano-vllm-cpp BlockManager 模块讲解</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --card: #161b22;
+    --card-soft: #11161d;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --text-muted: #8b949e;
+    --heading: #f0f6fc;
+    --accent: #58a6ff;
+    --accent2: #3fb950;
+    --accent3: #d2a8ff;
+    --warn-bg: #2d1b00;
+    --warn-border: #9e6a03;
+    --danger-bg: #2d1115;
+    --danger-border: #a40e26;
+    --mono-bg: #1a2030;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background:
+      radial-gradient(circle at top right, rgba(88, 166, 255, 0.08), transparent 28%),
+      radial-gradient(circle at top left, rgba(63, 185, 80, 0.06), transparent 24%),
+      var(--bg);
+    color: var(--text);
+    line-height: 1.72;
+    padding: 2rem;
+    max-width: 1080px;
+    margin: 0 auto;
+  }
+  h1 {
+    color: var(--heading);
+    font-size: 2.15rem;
+    margin-bottom: 0.6rem;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.85rem;
+  }
+  h1 span { color: var(--accent); }
+  .subtitle {
+    color: var(--text-muted);
+    margin-bottom: 2rem;
+    font-size: 0.95rem;
+  }
+  .toc {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem 1.4rem;
+    margin-bottom: 2rem;
+  }
+  .toc-title {
+    color: var(--heading);
+    font-weight: 600;
+    margin-bottom: 0.6rem;
+  }
+  .toc ul { list-style: none; }
+  .toc li { margin: 0.28rem 0; }
+  .toc a {
+    color: var(--accent);
+    text-decoration: none;
+    font-size: 0.94rem;
+  }
+  .toc a:hover { text-decoration: underline; }
+  h2 {
+    color: var(--heading);
+    font-size: 1.4rem;
+    margin: 2rem 0 1rem;
+    padding-left: 0.65rem;
+    border-left: 3px solid var(--accent);
+  }
+  h3 {
+    color: var(--heading);
+    font-size: 1.05rem;
+    margin: 1.25rem 0 0.7rem;
+  }
+  p {
+    margin-bottom: 0.85rem;
+    color: var(--text);
+  }
+  .section-desc {
+    color: var(--text-muted);
+    font-size: 0.93rem;
+    margin-bottom: 1rem;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 0.9rem;
+    margin: 1rem 0 1.25rem;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem 1.1rem;
+  }
+  .card h3 {
+    margin-top: 0;
+    color: var(--accent);
+  }
+  .badge {
+    display: inline-block;
+    padding: 0.12rem 0.5rem;
+    font-size: 0.74rem;
+    border-radius: 999px;
+    margin-left: 0.45rem;
+    vertical-align: middle;
+    border: 1px solid transparent;
+  }
+  .badge-prefill {
+    background: #122117;
+    color: #7ee787;
+    border-color: #1a4028;
+  }
+  .badge-decode {
+    background: #1a2332;
+    color: #79c0ff;
+    border-color: #1f3a5f;
+  }
+  .badge-cache {
+    background: #2a1f36;
+    color: var(--accent3);
+    border-color: #3d2e52;
+  }
+  .diagram {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.2rem;
+    margin: 1rem 0 1.4rem;
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    font-size: 0.86rem;
+    white-space: pre;
+    overflow-x: auto;
+    color: var(--text-muted);
+    line-height: 1.52;
+  }
+  .note, .danger {
+    border-radius: 8px;
+    padding: 0.8rem 1rem;
+    margin: 0.9rem 0 1rem;
+    font-size: 0.9rem;
+  }
+  .note {
+    background: var(--warn-bg);
+    border: 1px solid var(--warn-border);
+    color: #e3b341;
+  }
+  .danger {
+    background: var(--danger-bg);
+    border: 1px solid var(--danger-border);
+    color: #ffb3ba;
+  }
+  code {
+    font-family: 'SFMono-Regular', Consolas, monospace;
+    background: var(--mono-bg);
+    padding: 0.15rem 0.38rem;
+    border-radius: 4px;
+    color: #e6edf3;
+    font-size: 0.88rem;
+  }
+  pre {
+    background: var(--card-soft);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem 1.1rem;
+    overflow-x: auto;
+    margin: 0.8rem 0 1.1rem;
+  }
+  pre code {
+    background: transparent;
+    padding: 0;
+    font-size: 0.86rem;
+    line-height: 1.56;
+    display: block;
+  }
+  ul {
+    padding-left: 1.2rem;
+    margin-bottom: 1rem;
+  }
+  li { margin: 0.34rem 0; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0 1.2rem;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  th, td {
+    padding: 0.85rem 0.95rem;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+    vertical-align: top;
+  }
+  th {
+    color: var(--heading);
+    background: #131922;
+    font-weight: 600;
+  }
+  tr:last-child td { border-bottom: none; }
+  .pill-row {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin: 0.8rem 0 0.3rem;
+  }
+  .pill {
+    font-size: 0.8rem;
+    padding: 0.22rem 0.6rem;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--text-muted);
+  }
+  footer {
+    margin-top: 3rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    text-align: center;
+  }
+  @media (max-width: 700px) {
+    body { padding: 1rem; }
+    h1 { font-size: 1.8rem; }
+    table, thead, tbody, th, td, tr { display: block; }
+    thead { display: none; }
+    td {
+      border-bottom: 1px solid var(--border);
+      padding: 0.8rem 0.9rem;
+    }
+    tr:last-child td:last-child { border-bottom: none; }
+  }
+</style>
+</head>
+<body>
+
+<h1><span>nano-vllm-cpp</span> BlockManager 模块讲解</h1>
+<p class="subtitle">基于 include/engine/block_manager.h、src/engine/block_manager.cpp、tests/test_block_manager.cpp 的实现解读。目标是讲清楚 BlockManager 如何管理页式 KV Cache、如何做 prefix cache 命中，以及它在 prefill / decode 两条执行路径中的职责。</p>
+
+<div class="toc">
+  <div class="toc-title">目录</div>
+  <ul>
+    <li><a href="#overview">1. 模块总览</a></li>
+    <li><a href="#datastructures">2. 核心数据结构</a></li>
+    <li><a href="#hash">3. 哈希链与 Prefix Cache</a></li>
+    <li><a href="#prefill">4. Prefill 路径</a></li>
+    <li><a href="#decode">5. Decode 路径</a></li>
+    <li><a href="#invariants">6. 关键不变量与边界条件</a></li>
+    <li><a href="#tests">7. 测试覆盖与讲解角度</a></li>
+  </ul>
+</div>
+
+<h2 id="overview">1. 模块总览</h2>
+<p class="section-desc">一句话总结：BlockManager 不是“保存 token 的普通容器”，而是一个“页式 KV Cache 资源管理器”。Sequence 决定逻辑 token 序列，BlockManager 决定这些 token 的 KV 实际落在哪些物理页上，以及哪些页可以跨请求复用。</p>
+
+<div class="grid">
+  <div class="card">
+    <h3>页式分配</h3>
+    <p>把 KV Cache 切成固定大小的 block。每个 block 对应一页物理存储，避免整段序列连续扩容带来的拷贝成本。</p>
+  </div>
+  <div class="card">
+    <h3>前缀复用</h3>
+    <p>通过 hash chain 判断完整 block 是否和已有请求共享前缀。如果命中，直接复用已存在的 KV，而不是重新 prefill。</p>
+  </div>
+  <div class="card">
+    <h3>引用计数</h3>
+    <p>多个 Sequence 可以共享同一物理 block。Block 的 <code>ref_count</code> 控制真正的回收时机，避免过早释放共享页。</p>
+  </div>
+  <div class="card">
+    <h3>Decode 维护</h3>
+    <p>decode 每轮通常只追加 1 个 token。BlockManager 负责判断是否要新开 block，以及一个残缺 block 何时升级为可复用缓存。</p>
+  </div>
+</div>
+
+<div class="diagram">Sequence.token_ids          [t0 t1 t2 ... t599]
+        │
+        ├── 逻辑按 block_size 切分
+        ▼
+逻辑 block                [0..255] [256..511] [512..599]
+        │
+        ├── BlockManager.allocate() 生成映射
+        ▼
+Sequence.block_table      [7, 12, 3]
+        │                   │   │   │
+        │                   │   │   └── 物理 block 3: 残缺 block, 暂不可复用
+        │                   │   └────── 物理 block 12: 命中 prefix cache
+        │                   └────────── 物理 block 7: 命中 prefix cache
+        ▼
+物理 KV pages             blocks_[7], blocks_[12], blocks_[3]</div>
+
+<div class="pill-row">
+  <span class="pill">Sequence 持有完整 token_ids</span>
+  <span class="pill">BlockManager 持有物理页状态</span>
+  <span class="pill">Scheduler 通过它做资源判断</span>
+  <span class="pill">Attention kernel 通过 block_table 找 KV</span>
+</div>
+
+<h2 id="datastructures">2. 核心数据结构</h2>
+<p class="section-desc">理解这个模块最重要的是区分三个层次：逻辑 token 序列、逻辑 block 切分、物理 block 分配。</p>
+
+<h3>2.1 Block</h3>
+<pre><code>struct Block {
+    int block_id = 0;
+    int ref_count = 0;
+    uint64_t hash = kNoHash;
+    std::vector&lt;int32_t&gt; token_ids;
+};</code></pre>
+
+<table>
+  <thead>
+    <tr>
+      <th>字段</th>
+      <th>含义</th>
+      <th>为什么重要</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>block_id</code></td>
+      <td>物理 block 编号</td>
+      <td>Sequence.block_table 里记录的就是它，供 attention 和调度层引用。</td>
+    </tr>
+    <tr>
+      <td><code>ref_count</code></td>
+      <td>被多少条序列共享</td>
+      <td>prefix cache 命中后多个 Sequence 会指向同一个物理 block，只有引用归零才允许真正回收。</td>
+    </tr>
+    <tr>
+      <td><code>hash</code></td>
+      <td>当前 block 的 hash chain 值</td>
+      <td>是 prefix cache 的索引 key。完整 block 才有稳定 hash。</td>
+    </tr>
+    <tr>
+      <td><code>token_ids</code></td>
+      <td>该 block 对应的 token 内容</td>
+      <td>用于二次校验，避免 hash collision 导致错误复用。</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>2.2 BlockManager 内部状态</h3>
+<pre><code>int block_size_;
+std::vector&lt;Block&gt; blocks_;
+std::unordered_map&lt;uint64_t, int&gt; hash_to_block_id_;
+std::deque&lt;int&gt; free_block_ids_;
+std::unordered_set&lt;int&gt; used_block_ids_;</code></pre>
+
+<ul>
+  <li><code>blocks_</code> 是物理 block 池，大小在初始化时固定。</li>
+  <li><code>free_block_ids_</code> 记录当前空闲页，可被新序列或 decode 扩容使用。</li>
+  <li><code>used_block_ids_</code> 记录正在使用的页，和 free 队列互补。</li>
+  <li><code>hash_to_block_id_</code> 是 prefix cache 索引，key 是 hash chain，value 是物理 block id。</li>
+</ul>
+
+<h3>2.3 与 Sequence 的配合</h3>
+<pre><code>std::vector&lt;int32_t&gt; token_ids;
+int32_t num_cached_tokens = 0;
+std::vector&lt;int32_t&gt; block_table;</code></pre>
+
+<p>这三个字段一起才能把“逻辑序列”和“物理页状态”接起来：</p>
+<ul>
+  <li><code>token_ids</code> 负责表示完整上下文内容，BlockManager 用它切 block、算 hash、注册缓存。</li>
+  <li><code>num_cached_tokens</code> 表示 prefix cache 已经覆盖的前缀长度，后续 prefill 只需要算 suffix。</li>
+  <li><code>block_table</code> 是逻辑 block 到物理 block 的映射，attention kernel 需要靠它定位 KV 页。</li>
+</ul>
+
+<h2 id="hash">3. 哈希链与 Prefix Cache</h2>
+<p class="section-desc">BlockManager 不是直接拿整个 prompt 做一次 hash，而是按 block 构造 hash chain。这样可以做到“前缀命中到第几个完整 block”为止，而不要求整段 prompt 完全相同。</p>
+
+<pre><code>uint64_t compute_hash(const std::vector&lt;int32_t&gt;&amp; token_ids,
+                      uint64_t prefix = kNoHash);</code></pre>
+
+<div class="diagram">h0 = kNoHash
+h1 = hash(block0, h0)
+h2 = hash(block1, h1)
+h3 = hash(block2, h2)
+
+如果两条序列拥有相同的前两个完整 block:
+  seqA: block0 == seqB.block0
+  seqA: block1 == seqB.block1
+那么 h1 和 h2 必然相同, 前两个 block 可复用。
+
+但一旦 block2 不同:
+  h3 不同, 从这一块开始之后的 block 都不能复用。</div>
+
+<h3>3.1 为什么只缓存完整 block</h3>
+<ul>
+  <li>残缺 block 的内容还会继续增长，hash 不稳定。</li>
+  <li>如果对残缺 block 提前注册缓存，每次 decode append 都要更新 hash 索引，管理复杂度明显上升。</li>
+  <li>按 block 粒度缓存会损失最多一个 block 的命中精度，但能换来简单、稳定的实现。</li>
+</ul>
+
+<div class="note">当前实现中，最后一个不完整 block 会把 <code>hash</code> 设为 <code>kNoHash</code>。这意味着“只命中完整块，不命中残缺块”是明确设计，而不是偶然行为。</div>
+
+<h3>3.2 为什么还要比较 token_ids</h3>
+<p>查到 hash 命中后，代码还会进一步比较 <code>blocks_[block_id].token_ids != token_ids</code>。这是为了避免极低概率的 hash collision 造成错误复用。也就是说，hash 只负责快速定位，token 内容校验才是最终确认。</p>
+
+<div class="danger">实现里采用的是“一旦 miss，后续全 miss”的策略。原因是当前请求的 block_table 必须连续成立，不能跳过中间一段之后再复用后面的块，否则逻辑前缀就断裂了。</div>
+
+<h2 id="prefill">4. Prefill 路径 <span class="badge badge-prefill">allocate / can_allocate</span></h2>
+<p class="section-desc">Prefill 阶段的核心任务是：为一条新 Sequence 建立 block_table，同时尽可能复用已经存在的 KV Cache 前缀。</p>
+
+<h3>4.1 can_allocate 在判断什么</h3>
+<pre><code>bool BlockManager::can_allocate(const Sequence&amp; seq) const {
+    return free_block_ids_.size() &gt;= seq.num_blocks();
+}</code></pre>
+
+<p>这个实现是一个偏保守的资源检查：它只按“整条序列需要多少 block”估算，不提前把 prefix cache 命中节省的 block 算进去。优点是简单、不会高估可分配能力；缺点是理论上会错过一小部分本可以依赖 cache 命中的请求。</p>
+
+<h3>4.2 allocate 的执行过程</h3>
+<div class="diagram">for each logical block in Sequence:
+  1. 取出该 block 的 token_ids
+  2. 如果是完整 block, 用 prefix hash 计算当前 hash
+  3. 去 hash_to_block_id_ 查缓存
+  4. 若命中且 token 内容完全一致:
+       - seq.num_cached_tokens += block_size
+       - block.ref_count++ 或重新激活 block
+     否则:
+       - 从 free_block_ids_ 拿一个新物理 block
+  5. 把 block_id 写入 seq.block_table
+  6. 如果当前 block 是完整 block, 更新 hash_to_block_id_</div>
+
+<h3>4.3 一个具体例子</h3>
+<p>假设 <code>block_size = 256</code>，序列长度为 612：</p>
+<div class="diagram">逻辑序列:
+  block0 = tokens[0..255]     完整
+  block1 = tokens[256..511]   完整
+  block2 = tokens[512..611]   残缺
+
+先到的 seq1:
+  allocate -> 分配物理 [4, 9, 2]
+  num_cached_tokens = 0
+
+后到的 seq2, 前 512 token 和 seq1 完全相同:
+  block0 命中 -> 复用 4
+  block1 命中 -> 复用 9
+  block2 不命中 -> 新分配 7
+  结果 block_table = [4, 9, 7]
+  num_cached_tokens = 512</div>
+
+<p>这时 prefill 的真实工作量不是 612，而是 <code>612 - 512 = 100</code>。调度器和输入准备都应该把前 512 个 token 当成已经完成的历史工作。</p>
+
+<h3>4.4 对输入准备的直接影响</h3>
+<ul>
+  <li>prefill 的 query 只处理未命中的 suffix，例如 <code>token_ids[512..611]</code>。</li>
+  <li>position ids 仍要从 512 开始，而不是从 0 重新编号。</li>
+  <li>attention 的 key/value 长度仍然是完整上下文长度，因为模型需要看到完整历史。</li>
+  <li>slot mapping 只为新写入的 token 生成，因为命中的前缀 block 已经有现成 KV。</li>
+</ul>
+
+<h2 id="decode">5. Decode 路径 <span class="badge badge-decode">can_append / may_append</span></h2>
+<p class="section-desc">Decode 阶段不再处理整段 prompt，而是围绕“新追加的 1 个 token 会不会跨 block 边界”展开。BlockManager 在这个阶段更像一个轻量的页维护器。</p>
+
+<h3>5.1 can_append 的判断逻辑</h3>
+<pre><code>int need = (seq.len() % block_size_ == 1) ? 1 : 0;</code></pre>
+
+<p>调用时机是在 <code>append_token()</code> 之后。此时如果长度从 <code>256 -&gt; 257</code>，那么新 token 已经落到下一个 block，需要 1 个新物理页；否则还写在当前残缺 block 里，不需要额外页。</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>追加后长度</th>
+      <th><code>len % block_size</code></th>
+      <th>含义</th>
+      <th>是否要新 block</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>256</td>
+      <td>0</td>
+      <td>最后一个 block 刚好填满</td>
+      <td>否，但要注册 hash</td>
+    </tr>
+    <tr>
+      <td>257</td>
+      <td>1</td>
+      <td>新 token 溢出到下一个 block</td>
+      <td>是</td>
+    </tr>
+    <tr>
+      <td>258..511</td>
+      <td>2..255</td>
+      <td>仍写在当前残缺 block</td>
+      <td>否</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>5.2 may_append 的三种分支</h3>
+<pre><code>if (rem == 1) {
+    // 上一个 block 已满, 为新 token 分配新页
+} else if (rem == 0) {
+    // 当前 block 刚填满, 计算 hash 并注册进 cache
+} else {
+    // 当前 block 仍残缺, 暂不做任何事
+}</code></pre>
+
+<div class="diagram">情况 A: rem == 1
+  原来长度 = 256
+  append 1 个 token 后 = 257
+  新 token 落在新 block, 所以 block_table 追加一个物理页
+
+情况 B: rem == 0
+  原来长度 = 511
+  append 1 个 token 后 = 512
+  最后一个残缺 block 被填满, 现在可以生成稳定 hash 并允许后续请求复用
+
+情况 C: rem == 2..255
+  原来长度 = 300
+  append 1 个 token 后 = 301
+  只是往当前残缺 block 继续写, 既不扩容也不注册缓存</div>
+
+<h3>5.3 为什么 decode 阶段不能把当前长度等同于缓存长度</h3>
+<p>因为 decode 每轮都会增长 <code>num_tokens</code>，但增长部分通常落在最后一个残缺 block，直到填满之前都不能视为稳定可复用缓存。所以模块里才会同时保留：</p>
+<ul>
+  <li><code>num_tokens</code>：当前真实长度，决定下一个 token 写在哪。</li>
+  <li><code>num_cached_tokens</code>：已经命中或稳定可复用的前缀长度，决定 prefill 可跳过多少工作。</li>
+  <li><code>num_cached_blocks()</code>：一个快速的整块视角，便于上层按 block 粒度思考命中范围。</li>
+</ul>
+
+<h2 id="invariants">6. 关键不变量与边界条件</h2>
+<p class="section-desc">这些不变量是面试回答和调试排错时最值得强调的点。理解它们，基本就抓住了 BlockManager 的设计核心。</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>不变量</th>
+      <th>含义</th>
+      <th>如果破坏会怎样</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>seq.block_table.size() == seq.num_blocks()</code></td>
+      <td>逻辑 block 和物理映射一一对应</td>
+      <td>attention 读取 KV 时会找不到页，或者页数不匹配。</td>
+    </tr>
+    <tr>
+      <td><code>num_cached_tokens</code> 是 <code>block_size</code> 的整数倍</td>
+      <td>当前实现只缓存完整 block</td>
+      <td>如果不是整块，就意味着残缺 block 被错误地当成稳定缓存。</td>
+    </tr>
+    <tr>
+      <td><code>hash == kNoHash</code> 表示不可复用</td>
+      <td>典型场景是残缺 block 或新分配未填满 block</td>
+      <td>错误注册会导致后续请求命中不稳定前缀。</td>
+    </tr>
+    <tr>
+      <td>释放依赖 <code>ref_count</code></td>
+      <td>共享 block 必须等所有引用都结束</td>
+      <td>过早释放会把仍在使用的 KV 页放回空闲池，造成数据破坏。</td>
+    </tr>
+    <tr>
+      <td>一旦 miss, 后续全 miss</td>
+      <td>prefix 复用必须是连续前缀</td>
+      <td>不能出现“中间一块不同, 后面又继续复用”的断裂映射。</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>常见边界条件</h3>
+<ul>
+  <li>单 token 序列仍然占 1 个 block。</li>
+  <li>恰好填满一个 block 时，不会新分配 block，但会注册 hash。</li>
+  <li>从完整 block 跨到新 block 的那一步，<code>can_append()</code> 才需要检查空闲页。</li>
+  <li><code>deallocate()</code> 会把 <code>seq.num_cached_tokens</code> 清零，并清空 <code>block_table</code>，表明该 Sequence 已不再持有任何物理页。</li>
+</ul>
+
+<h2 id="tests">7. 测试覆盖与讲解角度</h2>
+<p class="section-desc">当前仓库已经有一套比较完整的单元测试。阅读测试文件时，可以把它们当作“BlockManager 的行为规格说明”。</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>测试主题</th>
+      <th>验证点</th>
+      <th>你在讲解时可以怎么说</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>ComputeHashDeterministic</code></td>
+      <td>相同 token 输入得到相同 hash</td>
+      <td>prefix cache 的索引必须稳定，否则无法跨请求复用。</td>
+    </tr>
+    <tr>
+      <td><code>PrefixCacheHit</code></td>
+      <td>共享前缀时前几个 block 直接复用</td>
+      <td>说明 <code>num_cached_tokens</code> 不是装饰字段，而是决定真实 prefill 工作量的元数据。</td>
+    </tr>
+    <tr>
+      <td><code>DeallocateRecyclesBlocks</code></td>
+      <td>共享 block 只有 ref_count 归零才回收</td>
+      <td>体现 block 生命周期管理，而不只是“把 id 放回 free list”。</td>
+    </tr>
+    <tr>
+      <td><code>MayAppendAllocatesNewBlock</code></td>
+      <td>decode 跨 block 时要扩容</td>
+      <td>说明 decode 和 prefill 的关注点完全不同，decode 更关注尾部页是否溢出。</td>
+    </tr>
+    <tr>
+      <td><code>MayAppendRegistersHashWhenBlockFull</code></td>
+      <td>残缺 block 填满后才能进入 prefix cache</td>
+      <td>这是“只缓存完整块”这一设计最直接的行为证明。</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>面试式总结</h3>
+<p>如果要用一句更工程化的话概括这个模块，可以这样说：</p>
+<div class="card">
+  <p>BlockManager 是 Scheduler 和 attention kernel 之间的页式资源中间层。它把 Sequence 的完整 token 序列切成固定大小的逻辑块，再映射到可共享、可回收的物理 KV 页；prefill 阶段负责找可复用前缀并建立 block_table，decode 阶段负责判断尾部是否扩容以及何时把残缺块提升为可缓存块。</p>
+</div>
+
+<footer>
+  BlockManager 文档页生成于 nano-vllm-cpp/docs 目录，可直接用浏览器打开进行讲解或面试复盘。
+</footer>
+
+</body>
+</html>

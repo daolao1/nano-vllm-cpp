@@ -1,0 +1,1105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FlashAttention V1–V3 优化详解</title>
+  <style>
+    :root {
+      --bg: #07131a;
+      --bg-soft: #0d1f28;
+      --panel: rgba(13, 31, 40, 0.82);
+      --panel-strong: rgba(10, 24, 32, 0.94);
+      --line: rgba(123, 178, 194, 0.24);
+      --text: #e6f2f4;
+      --muted: #9ab8bf;
+      --accent: #55d6be;
+      --accent-2: #ffb454;
+      --danger: #ff8f8f;
+      --ok: #7fe3b0;
+      --shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+      --radius: 20px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      color: var(--text);
+      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(85, 214, 190, 0.16), transparent 28%),
+        radial-gradient(circle at top right, rgba(255, 180, 84, 0.14), transparent 26%),
+        linear-gradient(180deg, #061018 0%, #09151d 42%, #07131a 100%);
+      line-height: 1.65;
+    }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .page {
+      width: min(1180px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 28px 0 64px;
+    }
+
+    .hero {
+      padding: 34px;
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      background: linear-gradient(135deg, rgba(10, 24, 32, 0.96), rgba(13, 31, 40, 0.88));
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      position: relative;
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: auto -80px -80px auto;
+      width: 240px;
+      height: 240px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(85, 214, 190, 0.18), transparent 68%);
+      pointer-events: none;
+    }
+
+    .eyebrow {
+      margin: 0 0 12px;
+      font-size: 12px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--accent-2);
+    }
+
+    h1, h2, h3 { margin: 0; line-height: 1.2; font-weight: 650; }
+    h1 { font-size: clamp(34px, 4vw, 54px); max-width: 14em; }
+    h2 { font-size: 24px; margin-bottom: 14px; }
+    h3 { font-size: 18px; margin-bottom: 10px; }
+    p { margin: 0; color: var(--muted); }
+    .hero p { max-width: 820px; font-size: 16px; margin-top: 14px; }
+
+    .badge-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; }
+    .badge {
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text);
+      font-size: 13px;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1fr);
+      gap: 18px;
+      margin-top: 18px;
+    }
+
+    .toc, .section, .card, details {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(16px);
+    }
+
+    .toc {
+      position: sticky;
+      top: 16px;
+      align-self: start;
+      padding: 18px;
+    }
+
+    .toc h2 { font-size: 18px; margin-bottom: 12px; }
+
+    .toc ol {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: grid;
+      gap: 10px;
+    }
+
+    .toc li a {
+      display: block;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--text);
+      font-size: 14px;
+    }
+
+    .content { display: grid; gap: 18px; }
+
+    .section { padding: 24px; }
+
+    .grid { display: grid; gap: 14px; }
+    .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+    .card { padding: 18px; }
+    .card strong, .stat strong {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--text);
+      font-size: 15px;
+    }
+
+    .stat {
+      padding: 16px;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.035);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .pill {
+      display: inline-block;
+      margin-top: 12px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .pill.v1 { color: #072016; background: var(--ok); }
+    .pill.v2 { color: #251707; background: var(--accent-2); }
+    .pill.v3 { color: #0a1725; background: #7eb8ff; }
+    .pill.cuda { color: #072016; background: var(--ok); }
+
+    .code {
+      margin-top: 14px;
+      padding: 16px;
+      border-radius: 16px;
+      background: rgba(5, 11, 16, 0.78);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      overflow-x: auto;
+      font-family: "JetBrains Mono", "Fira Code", monospace;
+      font-size: 13px;
+      color: #d8ebf0;
+      line-height: 1.55;
+      white-space: pre;
+    }
+
+    .formula {
+      margin-top: 14px;
+      padding: 16px 20px;
+      border-radius: 16px;
+      background: rgba(5, 11, 16, 0.58);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      font-family: "JetBrains Mono", "Fira Code", monospace;
+      font-size: 14px;
+      color: var(--accent);
+      overflow-x: auto;
+      white-space: pre;
+      line-height: 1.6;
+    }
+
+    .muted { color: var(--muted); }
+
+    details { padding: 0; overflow: hidden; }
+    details + details { margin-top: 12px; }
+
+    summary {
+      cursor: pointer;
+      list-style: none;
+      padding: 18px 20px;
+      font-weight: 600;
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.03);
+    }
+    summary::-webkit-details-marker { display: none; }
+    summary::before { content: "▸ "; color: var(--accent); }
+    details[open] summary::before { content: "▾ "; }
+
+    .details-body {
+      padding: 18px 20px 20px;
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    ul { margin: 12px 0 0; padding-left: 18px; color: var(--muted); }
+    li + li { margin-top: 8px; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 14px;
+      overflow: hidden;
+      border-radius: 16px;
+    }
+    th, td {
+      text-align: left;
+      padding: 13px 14px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      vertical-align: top;
+    }
+    th { color: var(--text); font-weight: 600; background: rgba(255, 255, 255, 0.04); }
+    td { color: var(--muted); }
+
+    .footer {
+      margin-top: 18px;
+      padding: 18px 22px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    /* ---------- SVG Diagram Styles ---------- */
+    .diagram-wrap {
+      margin-top: 18px;
+      padding: 24px;
+      border-radius: 16px;
+      background: rgba(5, 11, 16, 0.6);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      overflow-x: auto;
+      display: flex;
+      justify-content: center;
+    }
+    .diagram-wrap svg text {
+      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      font-size: 13px;
+    }
+
+    .highlight-row {
+      padding: 14px 18px;
+      border-radius: 14px;
+      background: rgba(85, 214, 190, 0.07);
+      border: 1px solid rgba(85, 214, 190, 0.18);
+      margin-top: 14px;
+      color: var(--text);
+      font-size: 14px;
+    }
+
+    @media (max-width: 980px) {
+      .layout { grid-template-columns: 1fr; }
+      .toc { position: static; }
+      .grid.two, .grid.three { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ═══════════ HERO ═══════════ -->
+  <header class="hero">
+    <p class="eyebrow">nano-vllm-cpp / docs</p>
+    <h1>FlashAttention V1–V3 优化详解</h1>
+    <p>
+      FlashAttention 通过 Tiling + Online Softmax 消除了标准 Attention 中 O(N²) 的 HBM 读写瓶颈，
+      从 V1 的 IO-aware 算法到 V3 的 Hopper 异步流水线，每一代都在工程化利用 GPU 硬件上跨越了一步。
+      本文档覆盖核心算法原理、分块策略（含配图）、以及各版本的关键优化。
+    </p>
+    <div class="badge-row">
+      <span class="badge">V1: Tiling + Online Softmax</span>
+      <span class="badge">V2: 循环重排 + Warp 并行</span>
+      <span class="badge">V3: Hopper Warp Specialization</span>
+      <span class="badge">IO 复杂度: O(N²d² / M)</span>
+    </div>
+  </header>
+
+  <div class="layout">
+
+    <!-- ═══════════ TOC ═══════════ -->
+    <aside class="toc">
+      <h2>目录</h2>
+      <ol>
+        <li><a href="#problem">为什么需要 FlashAttention</a></li>
+        <li><a href="#tiling">Tiling 分块策略</a></li>
+        <li><a href="#tiling-vs-gemm">分块对比: Attention vs GEMM</a></li>
+        <li><a href="#online-softmax">Online Softmax 算法</a></li>
+        <li><a href="#v1">FlashAttention V1</a></li>
+        <li><a href="#v2">FlashAttention V2</a></li>
+        <li><a href="#v3">FlashAttention V3</a></li>
+        <li><a href="#compare">版本对比表</a></li>
+        <li><a href="#refs">参考文献</a></li>
+      </ol>
+    </aside>
+
+    <main class="content">
+
+      <!-- ═══════════ 1. Problem ═══════════ -->
+      <section class="section" id="problem">
+        <h2>1. 为什么需要 FlashAttention</h2>
+        <p>
+          标准 Self-Attention 计算 O = softmax(QK<sup>T</sup>) · V，需要把 N×N 的 Attention Matrix 先完整写入 HBM，
+          再读回做 softmax 和与 V 相乘。当序列长度 N 增大时，HBM 读写量以 O(N²) 增长，成为性能瓶颈。
+        </p>
+
+        <div class="grid two" style="margin-top: 16px;">
+          <div class="stat">
+            <strong>标准 Attention 的 HBM 访问</strong>
+            <p>写入 S = QK<sup>T</sup> (N×N) → 读回 S → 写入 P = softmax(S) → 读回 P → 写入 O = PV</p>
+            <p style="margin-top:8px; color: var(--danger);">总 HBM 访问: O(N² + Nd) — 被 N² 主导</p>
+          </div>
+          <div class="stat">
+            <strong>FlashAttention 的 HBM 访问</strong>
+            <p>Q, K, V 分块加载到 SRAM → 在 SRAM 中完成 QK<sup>T</sup> → softmax → ×V → 只写回最终 O</p>
+            <p style="margin-top:8px; color: var(--ok);">总 HBM 访问: O(N²d² / M) — M 为 SRAM 大小</p>
+          </div>
+        </div>
+
+        <!-- ===== 标准 Attention 内存流 ===== -->
+        <div class="diagram-wrap">
+          <svg width="780" height="260" viewBox="0 0 780 260">
+            <!-- HBM -->
+            <rect x="20" y="20" width="740" height="220" rx="14" fill="none" stroke="#3a5a68" stroke-width="1.5" stroke-dasharray="6,4"/>
+            <text x="40" y="50" fill="#9ab8bf" font-size="13" font-weight="600">HBM（显存）</text>
+
+            <!-- SRAM zone -->
+            <rect x="290" y="100" width="200" height="100" rx="10" fill="rgba(85,214,190,0.08)" stroke="#55d6be" stroke-width="1"/>
+            <text x="345" y="125" fill="#55d6be" font-size="12" font-weight="600">SRAM（片上）</text>
+
+            <!-- Q K V blocks in HBM -->
+            <rect x="50" y="80" width="60" height="40" rx="6" fill="rgba(126,184,255,0.15)" stroke="#7eb8ff" stroke-width="1"/>
+            <text x="67" y="105" fill="#7eb8ff" font-size="13" font-weight="600">Q</text>
+            <rect x="50" y="135" width="60" height="40" rx="6" fill="rgba(126,184,255,0.15)" stroke="#7eb8ff" stroke-width="1"/>
+            <text x="67" y="160" fill="#7eb8ff" font-size="13" font-weight="600">K</text>
+            <rect x="50" y="190" width="60" height="40" rx="6" fill="rgba(126,184,255,0.15)" stroke="#7eb8ff" stroke-width="1"/>
+            <text x="67" y="215" fill="#7eb8ff" font-size="13" font-weight="600">V</text>
+
+            <!-- S = QK^T in HBM -->
+            <rect x="155" y="100" width="90" height="50" rx="6" fill="rgba(255,143,143,0.12)" stroke="#ff8f8f" stroke-width="1"/>
+            <text x="168" y="130" fill="#ff8f8f" font-size="12" font-weight="600">S (N×N)</text>
+
+            <!-- P in HBM -->
+            <rect x="155" y="165" width="90" height="50" rx="6" fill="rgba(255,143,143,0.12)" stroke="#ff8f8f" stroke-width="1"/>
+            <text x="167" y="195" fill="#ff8f8f" font-size="12" font-weight="600">P (N×N)</text>
+
+            <!-- Arrows standard -->
+            <line x1="110" y1="100" x2="155" y2="120" stroke="#9ab8bf" stroke-width="1" marker-end="url(#arrow)"/>
+            <line x1="110" y1="155" x2="155" y2="130" stroke="#9ab8bf" stroke-width="1" marker-end="url(#arrow)"/>
+            <line x1="245" y1="125" x2="295" y2="145" stroke="#ff8f8f" stroke-width="1" marker-end="url(#arrowR)"/>
+            <text x="256" y="120" fill="#ff8f8f" font-size="11">读回</text>
+
+            <!-- O in HBM -->
+            <rect x="540" y="130" width="80" height="45" rx="6" fill="rgba(85,214,190,0.15)" stroke="#55d6be" stroke-width="1"/>
+            <text x="565" y="158" fill="#55d6be" font-size="13" font-weight="600">O</text>
+
+            <!-- arrows to O -->
+            <line x1="490" y1="155" x2="540" y2="152" stroke="#9ab8bf" stroke-width="1" marker-end="url(#arrow)"/>
+
+            <!-- Warning text -->
+            <text x="560" y="210" fill="#ff8f8f" font-size="12">← S、P 的写回 + 读回</text>
+            <text x="560" y="228" fill="#ff8f8f" font-size="12">   是最大的 IO 开销</text>
+
+            <!-- defs -->
+            <defs>
+              <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" fill="#9ab8bf">
+                <polygon points="0 0, 8 3, 0 6"/>
+              </marker>
+              <marker id="arrowR" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" fill="#ff8f8f">
+                <polygon points="0 0, 8 3, 0 6"/>
+              </marker>
+              <marker id="arrowG" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" fill="#55d6be">
+                <polygon points="0 0, 8 3, 0 6"/>
+              </marker>
+            </defs>
+          </svg>
+        </div>
+        <p style="margin-top:10px; font-size:13px; text-align:center;">图：标准 Attention 中 S、P 两个 N×N 矩阵在 HBM 中的写回与读回构成 IO 瓶颈</p>
+      </section>
+
+      <!-- ═══════════ 2. Tiling ═══════════ -->
+      <section class="section" id="tiling">
+        <h2>2. Tiling 分块策略</h2>
+        <p>
+          FlashAttention 沿 <strong>序列长度维度</strong> 对 Q、K、V 进行分块。设序列长度为 N，head dim 为 d，选取 Q 方向 block size 为 B<sub>r</sub>，K/V 方向为 B<sub>c</sub>：
+        </p>
+
+        <div class="formula">Q ∈ ℝ^{N×d}  →  分成 ⌈N/Br⌉ 块:  Q₁(Br×d), Q₂(Br×d), ...
+K ∈ ℝ^{N×d}  →  分成 ⌈N/Bc⌉ 块:  K₁(Bc×d), K₂(Bc×d), ...
+V ∈ ℝ^{N×d}  →  分成 ⌈N/Bc⌉ 块:  V₁(Bc×d), V₂(Bc×d), ...</div>
+
+        <!-- ===== Tiling 全景图 ===== -->
+        <div class="diagram-wrap">
+          <svg width="820" height="520" viewBox="0 0 820 520">
+            <defs>
+              <marker id="a1" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" fill="#55d6be"><polygon points="0 0,8 3,0 6"/></marker>
+              <marker id="a2" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" fill="#7eb8ff"><polygon points="0 0,8 3,0 6"/></marker>
+              <marker id="a3" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" fill="#ffb454"><polygon points="0 0,8 3,0 6"/></marker>
+              <marker id="a4" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto" fill="#ff8f8f"><polygon points="0 0,8 3,0 6"/></marker>
+            </defs>
+
+            <!-- ────── Q 矩阵 (左侧) ────── -->
+            <text x="42" y="30" fill="#7eb8ff" font-size="14" font-weight="700">Q (N×d)</text>
+            <rect x="30" y="40" width="80" height="260" rx="6" fill="none" stroke="#7eb8ff" stroke-width="1.5"/>
+            <!-- Q blocks -->
+            <rect x="32" y="42" width="76" height="48" rx="4" fill="rgba(126,184,255,0.12)" stroke="#7eb8ff" stroke-width="1"/>
+            <text x="48" y="72" fill="#7eb8ff" font-size="13" font-weight="600">Q₁ <tspan font-size="10" fill="#9ab8bf">(Br×d)</tspan></text>
+            <rect x="32" y="94" width="76" height="48" rx="4" fill="rgba(126,184,255,0.2)" stroke="#7eb8ff" stroke-width="1.5"/>
+            <text x="48" y="124" fill="#7eb8ff" font-size="13" font-weight="600">Q₂ <tspan font-size="10" fill="#9ab8bf">(Br×d)</tspan></text>
+            <rect x="32" y="146" width="76" height="48" rx="4" fill="rgba(126,184,255,0.12)" stroke="#7eb8ff" stroke-width="1"/>
+            <text x="48" y="176" fill="#7eb8ff" font-size="13" font-weight="600">Q₃ <tspan font-size="10" fill="#9ab8bf">(Br×d)</tspan></text>
+            <rect x="32" y="198" width="76" height="48" rx="4" fill="rgba(126,184,255,0.12)" stroke="#7eb8ff" stroke-width="1"/>
+            <text x="48" y="228" fill="#7eb8ff" font-size="13" font-weight="600">Q₄ <tspan font-size="10" fill="#9ab8bf">(Br×d)</tspan></text>
+            <rect x="32" y="250" width="76" height="48" rx="4" fill="rgba(126,184,255,0.12)" stroke="#7eb8ff" stroke-width="1"/>
+            <text x="52" y="280" fill="#7eb8ff" font-size="13">…</text>
+
+            <!-- 维度标注 -->
+            <text x="7" y="170" fill="#9ab8bf" font-size="11" transform="rotate(-90,7,170)">N (序列长度)</text>
+            <text x="55" y="315" fill="#9ab8bf" font-size="11">d</text>
+
+            <!-- ────── K^T 矩阵 (上方) ────── -->
+            <text x="205" y="30" fill="#ffb454" font-size="14" font-weight="700">K<tspan baseline-shift="super" font-size="10">T</tspan> (d×N)</text>
+            <rect x="180" y="40" width="300" height="55" rx="6" fill="none" stroke="#ffb454" stroke-width="1.5"/>
+            <!-- K blocks -->
+            <rect x="182" y="42" width="68" height="51" rx="4" fill="rgba(255,180,84,0.12)" stroke="#ffb454" stroke-width="1"/>
+            <text x="190" y="73" fill="#ffb454" font-size="12" font-weight="600">K₁<tspan baseline-shift="super" font-size="9">T</tspan></text>
+            <rect x="254" y="42" width="68" height="51" rx="4" fill="rgba(255,180,84,0.2)" stroke="#ffb454" stroke-width="1.5"/>
+            <text x="262" y="73" fill="#ffb454" font-size="12" font-weight="600">K₂<tspan baseline-shift="super" font-size="9">T</tspan></text>
+            <rect x="326" y="42" width="68" height="51" rx="4" fill="rgba(255,180,84,0.12)" stroke="#ffb454" stroke-width="1"/>
+            <text x="334" y="73" fill="#ffb454" font-size="12" font-weight="600">K₃<tspan baseline-shift="super" font-size="9">T</tspan></text>
+            <rect x="398" y="42" width="68" height="51" rx="4" fill="rgba(255,180,84,0.12)" stroke="#ffb454" stroke-width="1"/>
+            <text x="426" y="73" fill="#ffb454" font-size="12">…</text>
+            <text x="490" y="73" fill="#9ab8bf" font-size="11">← N →</text>
+
+            <!-- ────── S = QK^T 矩阵 (中央) ────── -->
+            <text x="240" y="115" fill="#ff8f8f" font-size="14" font-weight="700">S = QK<tspan baseline-shift="super" font-size="10">T</tspan> (N×N)</text>
+            <rect x="180" y="125" width="300" height="260" rx="6" fill="none" stroke="rgba(255,143,143,0.3)" stroke-width="1" stroke-dasharray="4,3"/>
+
+            <!-- S block grid (5 × 4 visible) -->
+            <!-- Row 1 -->
+            <rect x="182" y="127" width="68" height="48" rx="3" fill="rgba(255,143,143,0.06)" stroke="rgba(255,143,143,0.15)" stroke-width="0.7"/>
+            <rect x="254" y="127" width="68" height="48" rx="3" fill="rgba(255,143,143,0.06)" stroke="rgba(255,143,143,0.15)" stroke-width="0.7"/>
+            <rect x="326" y="127" width="68" height="48" rx="3" fill="rgba(255,143,143,0.06)" stroke="rgba(255,143,143,0.15)" stroke-width="0.7"/>
+            <rect x="398" y="127" width="68" height="48" rx="3" fill="rgba(255,143,143,0.06)" stroke="rgba(255,143,143,0.15)" stroke-width="0.7"/>
+            <!-- Row 2 — highlighted -->
+            <rect x="182" y="179" width="68" height="48" rx="3" fill="rgba(85,214,190,0.08)" stroke="rgba(85,214,190,0.3)" stroke-width="1"/>
+            <text x="198" y="208" fill="#55d6be" font-size="11" font-weight="600">S₂₁</text>
+            <rect x="254" y="179" width="68" height="48" rx="3" fill="rgba(85,214,190,0.15)" stroke="rgba(85,214,190,0.5)" stroke-width="1.5"/>
+            <text x="270" y="208" fill="#55d6be" font-size="11" font-weight="700">S₂₂ ★</text>
+            <rect x="326" y="179" width="68" height="48" rx="3" fill="rgba(85,214,190,0.08)" stroke="rgba(85,214,190,0.3)" stroke-width="1"/>
+            <text x="342" y="208" fill="#55d6be" font-size="11" font-weight="600">S₂₃</text>
+            <rect x="398" y="179" width="68" height="48" rx="3" fill="rgba(85,214,190,0.08)" stroke="rgba(85,214,190,0.3)" stroke-width="1"/>
+            <text x="414" y="208" fill="#55d6be" font-size="11" font-weight="600">S₂₄</text>
+            <!-- Row 3 -->
+            <rect x="182" y="231" width="68" height="48" rx="3" fill="rgba(255,143,143,0.06)" stroke="rgba(255,143,143,0.15)" stroke-width="0.7"/>
+            <rect x="254" y="231" width="68" height="48" rx="3" fill="rgba(255,143,143,0.06)" stroke="rgba(255,143,143,0.15)" stroke-width="0.7"/>
+            <rect x="326" y="231" width="68" height="48" rx="3" fill="rgba(255,143,143,0.06)" stroke="rgba(255,143,143,0.15)" stroke-width="0.7"/>
+            <rect x="398" y="231" width="68" height="48" rx="3" fill="rgba(255,143,143,0.06)" stroke="rgba(255,143,143,0.15)" stroke-width="0.7"/>
+            <!-- Row 4 -->
+            <rect x="182" y="283" width="68" height="48" rx="3" fill="rgba(255,143,143,0.06)" stroke="rgba(255,143,143,0.15)" stroke-width="0.7"/>
+            <rect x="254" y="283" width="68" height="48" rx="3" fill="rgba(255,143,143,0.06)" stroke="rgba(255,143,143,0.15)" stroke-width="0.7"/>
+            <rect x="326" y="283" width="68" height="48" rx="3" fill="rgba(255,143,143,0.06)" stroke="rgba(255,143,143,0.15)" stroke-width="0.7"/>
+            <rect x="398" y="283" width="68" height="48" rx="3" fill="rgba(255,143,143,0.06)" stroke="rgba(255,143,143,0.15)" stroke-width="0.7"/>
+            <!-- Row 5 dots -->
+            <rect x="182" y="335" width="68" height="48" rx="3" fill="rgba(255,143,143,0.04)" stroke="rgba(255,143,143,0.1)" stroke-width="0.5"/>
+            <text x="210" y="365" fill="#9ab8bf" font-size="12">…</text>
+
+            <!-- Arrow: Q₂ → S row 2 -->
+            <line x1="108" y1="118" x2="178" y2="203" stroke="#7eb8ff" stroke-width="1.5" marker-end="url(#a2)"/>
+            <text x="120" y="152" fill="#7eb8ff" font-size="11" transform="rotate(29,120,152)">Q₂ 的行</text>
+
+            <!-- Arrow: K₂ᵀ → S col 2 -->
+            <line x1="288" y1="93" x2="288" y2="175" stroke="#ffb454" stroke-width="1.5" marker-end="url(#a3)"/>
+            <text x="294" y="140" fill="#ffb454" font-size="11">K₂ᵀ 的列</text>
+
+            <!-- Size annotations -->
+            <text x="195" y="220" fill="rgba(85,214,190,0.6)" font-size="10">(Br×Bc)</text>
+
+            <!-- ────── V 矩阵 (右侧) ────── -->
+            <text x="530" y="115" fill="#7fe3b0" font-size="14" font-weight="700">V (N×d)</text>
+            <rect x="520" y="125" width="80" height="260" rx="6" fill="none" stroke="#7fe3b0" stroke-width="1.5"/>
+            <rect x="522" y="127" width="76" height="48" rx="4" fill="rgba(127,227,176,0.1)" stroke="#7fe3b0" stroke-width="0.7"/>
+            <text x="538" y="156" fill="#7fe3b0" font-size="12">V₁</text>
+            <rect x="522" y="179" width="76" height="48" rx="4" fill="rgba(127,227,176,0.18)" stroke="#7fe3b0" stroke-width="1.2"/>
+            <text x="538" y="208" fill="#7fe3b0" font-size="12" font-weight="600">V₂</text>
+            <rect x="522" y="231" width="76" height="48" rx="4" fill="rgba(127,227,176,0.1)" stroke="#7fe3b0" stroke-width="0.7"/>
+            <text x="538" y="260" fill="#7fe3b0" font-size="12">V₃</text>
+            <rect x="522" y="283" width="76" height="48" rx="4" fill="rgba(127,227,176,0.1)" stroke="#7fe3b0" stroke-width="0.7"/>
+            <text x="538" y="312" fill="#7fe3b0" font-size="12">V₄</text>
+            <rect x="522" y="335" width="76" height="48" rx="4" fill="rgba(127,227,176,0.06)" stroke="#7fe3b0" stroke-width="0.5"/>
+            <text x="553" y="365" fill="#9ab8bf" font-size="12">…</text>
+
+            <!-- ────── O 矩阵 (最右) ────── -->
+            <text x="660" y="115" fill="#55d6be" font-size="14" font-weight="700">O (N×d)</text>
+            <rect x="650" y="125" width="80" height="260" rx="6" fill="none" stroke="#55d6be" stroke-width="1.5"/>
+            <rect x="652" y="127" width="76" height="48" rx="4" fill="rgba(85,214,190,0.06)" stroke="#55d6be" stroke-width="0.5"/>
+            <rect x="652" y="179" width="76" height="48" rx="4" fill="rgba(85,214,190,0.18)" stroke="#55d6be" stroke-width="1.5"/>
+            <text x="668" y="208" fill="#55d6be" font-size="12" font-weight="700">O₂</text>
+            <rect x="652" y="231" width="76" height="48" rx="4" fill="rgba(85,214,190,0.06)" stroke="#55d6be" stroke-width="0.5"/>
+            <rect x="652" y="283" width="76" height="48" rx="4" fill="rgba(85,214,190,0.06)" stroke="#55d6be" stroke-width="0.5"/>
+            <rect x="652" y="335" width="76" height="48" rx="4" fill="rgba(85,214,190,0.04)" stroke="#55d6be" stroke-width="0.3"/>
+
+            <!-- Arrow: S row 2 × V → O₂ -->
+            <line x1="470" y1="203" x2="518" y2="203" stroke="#55d6be" stroke-width="1.2" marker-end="url(#a1)"/>
+            <text x="472" y="196" fill="#55d6be" font-size="10">softmax</text>
+            <line x1="600" y1="203" x2="648" y2="203" stroke="#55d6be" stroke-width="1.5" marker-end="url(#a1)"/>
+            <text x="608" y="196" fill="#55d6be" font-size="10">×V</text>
+
+            <!-- ────── 底部说明 ────── -->
+            <rect x="30" y="410" width="760" height="100" rx="12" fill="rgba(85,214,190,0.04)" stroke="rgba(85,214,190,0.15)" stroke-width="1"/>
+            <text x="50" y="438" fill="#55d6be" font-size="13" font-weight="700">关键：每次只加载一个 Q block 和一个 K/V block 到 SRAM</text>
+            <text x="50" y="460" fill="#9ab8bf" font-size="12">• 绿色高亮行: 当前正在处理的 Q₂ 与 K₁..K₄ 的交互块，只产生 Br×Bc 大小的局部 S 块</text>
+            <text x="50" y="478" fill="#9ab8bf" font-size="12">• 每处理完一个 K/V block，通过 online softmax 增量更新 O₂，整个 N×N 矩阵从不完整存在</text>
+            <text x="50" y="496" fill="#9ab8bf" font-size="12">• SRAM 只需存放: Q_i (Br×d) + K_j (Bc×d) + V_j (Bc×d) + O_i (Br×d) + m,l (Br) ≪ N×N</text>
+          </svg>
+        </div>
+        <p style="margin-top:10px; font-size:13px; text-align:center;">图：FlashAttention 的 Tiling 分块全景 — Q 沿行分块 (B<sub>r</sub>)，K/V 沿列分块 (B<sub>c</sub>)，高亮区域为当前 SRAM 中处理的块</p>
+      </section>
+
+      <!-- ═══════════ 3. Tiling vs GEMM ═══════════ -->
+      <section class="section" id="tiling-vs-gemm">
+        <h2>3. 分块对比：Attention Tiling vs GEMM Tiling</h2>
+        <p>
+          GEMM 的分块可以沿 M、N、K 三个维度自由切分，partial sum 直接累加。
+          FlashAttention 在 K/V 序列维分块时，由于 softmax 是行级全局归一化，无法简单累加——这是核心区别。
+        </p>
+
+        <!-- ===== 对比图 ===== -->
+        <div class="diagram-wrap">
+          <svg width="780" height="380" viewBox="0 0 780 380">
+            <!-- ── 左: GEMM ── -->
+            <text x="100" y="28" fill="#7eb8ff" font-size="16" font-weight="700" text-anchor="middle">GEMM Tiling</text>
+
+            <!-- A matrix -->
+            <rect x="20" y="80" width="50" height="120" rx="5" fill="rgba(126,184,255,0.12)" stroke="#7eb8ff" stroke-width="1"/>
+            <text x="32" y="65" fill="#7eb8ff" font-size="12" font-weight="600">A</text>
+            <!-- A blocks -->
+            <rect x="22" y="82" width="46" height="35" rx="3" fill="rgba(126,184,255,0.18)" stroke="#7eb8ff" stroke-width="0.8"/>
+            <text x="35" y="104" fill="#7eb8ff" font-size="10">A₁</text>
+            <rect x="22" y="121" width="46" height="35" rx="3" fill="rgba(126,184,255,0.1)" stroke="#7eb8ff" stroke-width="0.6"/>
+            <text x="35" y="143" fill="#7eb8ff" font-size="10">A₂</text>
+            <rect x="22" y="160" width="46" height="36" rx="3" fill="rgba(126,184,255,0.1)" stroke="#7eb8ff" stroke-width="0.6"/>
+            <text x="35" y="182" fill="#7eb8ff" font-size="10">A₃</text>
+
+            <!-- B matrix -->
+            <rect x="85" y="40" width="120" height="35" rx="5" fill="rgba(255,180,84,0.12)" stroke="#ffb454" stroke-width="1"/>
+            <text x="85" y="35" fill="#ffb454" font-size="12" font-weight="600">B</text>
+            <rect x="87" y="42" width="35" height="31" rx="3" fill="rgba(255,180,84,0.18)" stroke="#ffb454" stroke-width="0.8"/>
+            <text x="95" y="62" fill="#ffb454" font-size="10">B₁</text>
+            <rect x="126" y="42" width="35" height="31" rx="3" fill="rgba(255,180,84,0.1)" stroke="#ffb454" stroke-width="0.6"/>
+            <text x="134" y="62" fill="#ffb454" font-size="10">B₂</text>
+            <rect x="165" y="42" width="36" height="31" rx="3" fill="rgba(255,180,84,0.1)" stroke="#ffb454" stroke-width="0.6"/>
+            <text x="173" y="62" fill="#ffb454" font-size="10">B₃</text>
+
+            <!-- C matrix -->
+            <rect x="85" y="80" width="120" height="120" rx="5" fill="none" stroke="#55d6be" stroke-width="1" stroke-dasharray="4,3"/>
+            <text x="210" y="95" fill="#55d6be" font-size="12" font-weight="600">C</text>
+            <!-- C_11 highlighted -->
+            <rect x="87" y="82" width="35" height="35" rx="3" fill="rgba(85,214,190,0.2)" stroke="#55d6be" stroke-width="1.5"/>
+            <text x="95" y="104" fill="#55d6be" font-size="10" font-weight="700">C₁₁</text>
+
+            <!-- Formula -->
+            <text x="30" y="230" fill="#7eb8ff" font-size="12">C₁₁ = Σₖ A₁ₖ · Bₖ₁</text>
+            <text x="30" y="252" fill="#55d6be" font-size="12" font-weight="600">✓ 各 partial sum 直接累加</text>
+            <text x="30" y="272" fill="#55d6be" font-size="12" font-weight="600">✓ 沿 K 维分块无依赖</text>
+            <text x="30" y="292" fill="#9ab8bf" font-size="11">分块自由度: M × N × K 三维均可</text>
+
+            <!-- ── 分隔线 ── -->
+            <line x1="370" y1="20" x2="370" y2="360" stroke="rgba(255,255,255,0.1)" stroke-width="1" stroke-dasharray="6,4"/>
+            <text x="370" y="16" fill="#9ab8bf" font-size="11" text-anchor="middle">vs</text>
+
+            <!-- ── 右: FlashAttention ── -->
+            <text x="570" y="28" fill="#55d6be" font-size="16" font-weight="700" text-anchor="middle">FlashAttention Tiling</text>
+
+            <!-- Q block -->
+            <rect x="410" y="80" width="50" height="35" rx="5" fill="rgba(126,184,255,0.18)" stroke="#7eb8ff" stroke-width="1"/>
+            <text x="422" y="65" fill="#7eb8ff" font-size="12" font-weight="600">Qᵢ</text>
+            <text x="425" y="102" fill="#7eb8ff" font-size="10">Br×d</text>
+
+            <!-- K blocks -->
+            <rect x="480" y="40" width="45" height="30" rx="4" fill="rgba(255,180,84,0.15)" stroke="#ffb454" stroke-width="1"/>
+            <text x="491" y="60" fill="#ffb454" font-size="10" font-weight="600">K₁ᵀ</text>
+            <rect x="530" y="40" width="45" height="30" rx="4" fill="rgba(255,180,84,0.2)" stroke="#ffb454" stroke-width="1.5"/>
+            <text x="541" y="60" fill="#ffb454" font-size="10" font-weight="700">K₂ᵀ</text>
+            <rect x="580" y="40" width="45" height="30" rx="4" fill="rgba(255,180,84,0.15)" stroke="#ffb454" stroke-width="1"/>
+            <text x="591" y="60" fill="#ffb454" font-size="10" font-weight="600">K₃ᵀ</text>
+            <rect x="630" y="40" width="45" height="30" rx="4" fill="rgba(255,180,84,0.1)" stroke="#ffb454" stroke-width="0.7"/>
+            <text x="647" y="60" fill="#ffb454" font-size="10">…</text>
+
+            <!-- S block (small, transient) -->
+            <rect x="530" y="82" width="45" height="31" rx="4" fill="rgba(85,214,190,0.2)" stroke="#55d6be" stroke-width="1.5"/>
+            <text x="535" y="102" fill="#55d6be" font-size="10" font-weight="700">S₂ᵢ</text>
+            <text x="540" y="127" fill="#9ab8bf" font-size="9">Br×Bc</text>
+            <text x="540" y="140" fill="#ff8f8f" font-size="9">仅在 SRAM</text>
+
+            <!-- V block -->
+            <rect x="700" y="80" width="50" height="35" rx="5" fill="rgba(127,227,176,0.18)" stroke="#7fe3b0" stroke-width="1"/>
+            <text x="710" y="102" fill="#7fe3b0" font-size="10" font-weight="600">V₂</text>
+
+            <!-- O block -->
+            <rect x="700" y="130" width="50" height="35" rx="5" fill="rgba(85,214,190,0.18)" stroke="#55d6be" stroke-width="1.5"/>
+            <text x="712" y="153" fill="#55d6be" font-size="10" font-weight="700">Oᵢ</text>
+
+            <!-- arrows -->
+            <line x1="575" y1="102" x2="698" y2="97" stroke="#55d6be" stroke-width="1" marker-end="url(#a1)"/>
+            <text x="620" y="94" fill="#55d6be" font-size="9">softmax ×V₂</text>
+            <line x1="750" y1="115" x2="750" y2="128" stroke="#55d6be" stroke-width="1" marker-end="url(#a1)"/>
+
+            <!-- Formulas for FA -->
+            <text x="410" y="190" fill="#ff8f8f" font-size="12">处理 K₂ block 时:</text>
+            <text x="410" y="212" fill="#9ab8bf" font-size="12">m_new = max(m_old, rowmax(S₂ᵢ))</text>
+            <text x="410" y="232" fill="#9ab8bf" font-size="12">l_new = e^(m_old−m_new)·l_old + Σe^(S₂ᵢ−m_new)</text>
+            <text x="410" y="252" fill="#ffb454" font-size="12" font-weight="600">Oᵢ = e^(m_old−m_new)·Oᵢ + e^(S₂ᵢ−m_new)·V₂</text>
+            <text x="410" y="280" fill="#ff8f8f" font-size="12" font-weight="600">✗ 旧 O 需要 rescale（乘修正因子）</text>
+            <text x="410" y="300" fill="#ff8f8f" font-size="12" font-weight="600">✗ softmax 行级归一化 → K 维有依赖</text>
+            <text x="410" y="320" fill="#55d6be" font-size="12">✓ 用 online softmax 化解依赖</text>
+            <text x="410" y="340" fill="#9ab8bf" font-size="11">分块自由度: Q行 × KV列（两维）</text>
+          </svg>
+        </div>
+        <p style="margin-top:10px; font-size:13px; text-align:center;">图：GEMM Tiling（左）vs FlashAttention Tiling（右）— 关键区别在于 softmax 导致 K 维分块时旧结果需要 rescale</p>
+
+        <table>
+          <tr><th></th><th>GEMM Tiling</th><th>FlashAttention Tiling</th></tr>
+          <tr><td><strong>分块维度</strong></td><td>M × N × K 三维自由分</td><td>Q 方向 (B<sub>r</sub>) × K/V 方向 (B<sub>c</sub>)</td></tr>
+          <tr><td><strong>累加方式</strong></td><td>partial sum 直接相加</td><td>需 rescale：旧 O 乘 e<sup>(m_old − m_new)</sup></td></tr>
+          <tr><td><strong>SRAM 存储</strong></td><td>A tile + B tile + C partial sum</td><td>Q_i + K_j + V_j + O_i + m_i + l_i</td></tr>
+          <tr><td><strong>核心难点</strong></td><td>无</td><td>online softmax 的增量更新</td></tr>
+          <tr><td><strong>Block 间依赖</strong></td><td>无（可乱序累加）</td><td>沿 K/V 方向有序（需携带 m, l 状态）</td></tr>
+        </table>
+      </section>
+
+      <!-- ═══════════ 4. Online Softmax ═══════════ -->
+      <section class="section" id="online-softmax">
+        <h2>4. Online Softmax 算法</h2>
+        <p>
+          Online Softmax 是 FlashAttention 分块可行的数学基础。它允许在只看到部分数据的情况下增量计算 softmax 归一化，
+          每当新数据到来时只需更新 max 和 sum，并对旧的结果做一次 rescale。
+        </p>
+
+        <!-- ===== Online Softmax 流程图 ===== -->
+        <div class="diagram-wrap">
+          <svg width="760" height="360" viewBox="0 0 760 360">
+            <!-- 三个阶段 block -->
+            <!-- Block 1 -->
+            <rect x="30" y="40" width="200" height="250" rx="12" fill="rgba(126,184,255,0.06)" stroke="#7eb8ff" stroke-width="1"/>
+            <text x="85" y="30" fill="#7eb8ff" font-size="14" font-weight="700">Block 1 (K₁)</text>
+            <text x="50" y="72" fill="#9ab8bf" font-size="12">S₁ = Qᵢ · K₁ᵀ</text>
+            <text x="50" y="96" fill="#ffb454" font-size="12">m₁ = rowmax(S₁)</text>
+            <text x="50" y="118" fill="#ffb454" font-size="12">l₁ = Σ exp(S₁ − m₁)</text>
+            <text x="50" y="144" fill="#55d6be" font-size="12">P₁ = exp(S₁ − m₁)</text>
+            <text x="50" y="168" fill="#55d6be" font-size="12" font-weight="600">O₁ = P₁ · V₁</text>
+            <rect x="50" y="190" width="160" height="40" rx="8" fill="rgba(85,214,190,0.1)" stroke="rgba(85,214,190,0.3)" stroke-width="1"/>
+            <text x="60" y="215" fill="#55d6be" font-size="11">状态: m=m₁, l=l₁, O=O₁</text>
+            <text x="70" y="265" fill="#9ab8bf" font-size="11">初始阶段: 如标准 softmax</text>
+
+            <!-- Arrow 1→2 -->
+            <line x1="230" y1="160" x2="270" y2="160" stroke="#55d6be" stroke-width="1.5" marker-end="url(#a1)"/>
+
+            <!-- Block 2 -->
+            <rect x="270" y="40" width="220" height="250" rx="12" fill="rgba(255,180,84,0.06)" stroke="#ffb454" stroke-width="1"/>
+            <text x="325" y="30" fill="#ffb454" font-size="14" font-weight="700">Block 2 (K₂)</text>
+            <text x="290" y="72" fill="#9ab8bf" font-size="12">S₂ = Qᵢ · K₂ᵀ</text>
+            <text x="290" y="96" fill="#ffb454" font-size="12">m₂ = max(m₁, rowmax(S₂))</text>
+            <text x="290" y="118" fill="#ff8f8f" font-size="12" font-weight="600">α = exp(m₁ − m₂)  ← 修正因子</text>
+            <text x="290" y="144" fill="#ffb454" font-size="12">l₂ = α·l₁ + Σ exp(S₂ − m₂)</text>
+            <text x="290" y="168" fill="#ff8f8f" font-size="12" font-weight="600">O₂ = α·O₁ + exp(S₂−m₂)·V₂</text>
+            <text x="310" y="186" fill="#ff8f8f" font-size="10">↑ 旧 O₁ 必须乘修正因子 α</text>
+            <rect x="290" y="200" width="180" height="40" rx="8" fill="rgba(255,180,84,0.1)" stroke="rgba(255,180,84,0.3)" stroke-width="1"/>
+            <text x="300" y="225" fill="#ffb454" font-size="11">状态: m=m₂, l=l₂, O=O₂</text>
+            <text x="290" y="265" fill="#9ab8bf" font-size="11">关键: rescale 旧结果 + 累加新结果</text>
+
+            <!-- Arrow 2→3 -->
+            <line x1="490" y1="160" x2="530" y2="160" stroke="#55d6be" stroke-width="1.5" marker-end="url(#a1)"/>
+
+            <!-- Block final -->
+            <rect x="530" y="40" width="210" height="250" rx="12" fill="rgba(85,214,190,0.06)" stroke="#55d6be" stroke-width="1"/>
+            <text x="580" y="30" fill="#55d6be" font-size="14" font-weight="700">所有 Block 完成</text>
+            <text x="550" y="72" fill="#9ab8bf" font-size="12">遍历完所有 K/V blocks</text>
+            <text x="550" y="96" fill="#9ab8bf" font-size="12">m_final, l_final 已收敛</text>
+            <text x="550" y="130" fill="#55d6be" font-size="14" font-weight="700">最终归一化:</text>
+            <text x="550" y="158" fill="#55d6be" font-size="13" font-weight="600">O_final = O / l_final</text>
+            <rect x="550" y="180" width="170" height="50" rx="8" fill="rgba(85,214,190,0.15)" stroke="rgba(85,214,190,0.4)" stroke-width="1.5"/>
+            <text x="570" y="202" fill="#55d6be" font-size="12" font-weight="700">得到精确的 Attention</text>
+            <text x="570" y="220" fill="#55d6be" font-size="12" font-weight="700">输出，数学等价</text>
+            <text x="550" y="265" fill="#9ab8bf" font-size="11">只写回 O_final 到 HBM</text>
+
+            <!-- bottom note -->
+            <rect x="30" y="310" width="710" height="40" rx="10" fill="rgba(255,143,143,0.06)" stroke="rgba(255,143,143,0.2)" stroke-width="1"/>
+            <text x="50" y="335" fill="#ff8f8f" font-size="12" font-weight="600">核心不变量：任何时刻 Oᵢ 都满足 Oᵢ = (Σ_seen exp(s−m_cur) · V) / l_cur，只需在 m 变化时 rescale</text>
+          </svg>
+        </div>
+        <p style="margin-top:10px; font-size:13px; text-align:center;">图：Online Softmax 的增量计算流程 — 每处理一个新 K/V block，更新 m, l 并 rescale 旧输出</p>
+
+        <div class="code">// Online Softmax 伪代码 — 处理第 j 个 K/V block
+S_ij = Q_i @ K_j.T                      // (Br × Bc)
+m_new  = max(m_old, rowmax(S_ij))        // 更新行最大值
+alpha  = exp(m_old - m_new)              // 旧结果的修正因子
+l_new  = alpha * l_old + rowsum(exp(S_ij - m_new))  // 更新归一化因子
+O_i    = alpha * O_i + exp(S_ij - m_new) @ V_j      // rescale + 累加
+m_old  = m_new
+l_old  = l_new
+
+// 所有 block 遍历完后:
+O_i = O_i / l_new                        // 最终归一化</div>
+      </section>
+
+      <!-- ═══════════ 5. V1 ═══════════ -->
+      <section class="section" id="v1">
+        <h2>5. FlashAttention V1</h2>
+        <p>
+          V1 (Dao et al., 2022) 首次将 Tiling + Online Softmax 引入 Attention 计算。
+          核心思想：将 Q、K、V 分块加载到 SRAM，在片上完成完整的 softmax + matmul，
+          避免 N×N 中间矩阵写回 HBM。
+        </p>
+
+        <div class="grid two" style="margin-top: 16px;">
+          <div class="card">
+            <strong>核心技术</strong>
+            <ul>
+              <li><strong>Tiling</strong>：Q 分 ⌈N/B<sub>r</sub>⌉ 块，K/V 各分 ⌈N/B<sub>c</sub>⌉ 块</li>
+              <li><strong>Online Softmax</strong>：增量维护 (m, l) 对，支持分块归一化</li>
+              <li><strong>Recomputation</strong>：反向传播不存 attention matrix，从 Q/K/V/O 重算，用计算换显存</li>
+            </ul>
+            <span class="pill v1">V1</span>
+          </div>
+          <div class="card">
+            <strong>V1 循环结构</strong>
+            <div class="code" style="margin-top:8px;">// V1: 外层遍历 K/V blocks，内层遍历 Q blocks
+for j in range(⌈N/Bc⌉):         // 外层: K/V block
+    load K_j, V_j to SRAM
+    for i in range(⌈N/Br⌉):     // 内层: Q block
+        load Q_i, O_i, m_i, l_i to SRAM
+        compute S_ij, update O_i  // online softmax
+        write O_i, m_i, l_i back to HBM  ← 每轮都写回!</div>
+            <p style="margin-top:8px; color: var(--danger);">问题：O_i 每个内层迭代都要写回 HBM</p>
+          </div>
+        </div>
+
+        <div class="highlight-row">
+          <strong>IO 复杂度</strong>：从标准 Attention 的 Θ(Nd + N²) 降低到 Θ(N²d² / M)，其中 M 为 SRAM 大小。
+          当 M = Θ(Nd) 时，IO 为 Θ(Nd)，接近线性。
+        </div>
+
+        <div class="grid three" style="margin-top: 14px;">
+          <div class="stat">
+            <strong>GPU 利用率</strong>
+            <p style="color: var(--accent-2);">A100 上 ~25–40% 峰值 FLOPS</p>
+          </div>
+          <div class="stat">
+            <strong>内存节省</strong>
+            <p>不存储 N×N attention matrix，显存从 O(N²) 降至 O(N)</p>
+          </div>
+          <div class="stat">
+            <strong>训练加速</strong>
+            <p>BERT-large 约 15%，GPT-2 约 3× 加速</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══════════ 6. V2 ═══════════ -->
+      <section class="section" id="v2">
+        <h2>6. FlashAttention V2</h2>
+        <p>
+          V2 (Dao, 2023) 在算法不变的前提下，通过三类工程优化将 A100 上的 GPU 利用率从 ~30% 提升到 ~70%。
+        </p>
+
+        <details open>
+          <summary>优化 ①：减少非 matmul FLOPs</summary>
+          <div class="details-body">
+            <p>V1 每处理一个 K/V block 就做一次 rescale（乘 diag(e<sup>m_old−m_new</sup>)），产生大量非 matmul 的 FLOPs。
+               V2 推迟 rescale 到所有 block 结束后一次性归一化，减少中间的 exp/div 操作。</p>
+            <div class="code">// V2: 延迟归一化
+// 循环中不做 O = O / l  只维护未归一化的 O_acc
+for each K/V block:
+    O_acc = exp(m_old - m_new) * O_acc + exp(S - m_new) @ V
+// 循环结束后:
+O = diag(1/l_final) * O_acc   // 一次性归一化</div>
+          </div>
+        </details>
+
+        <details open>
+          <summary>优化 ②：交换循环顺序</summary>
+          <div class="details-body">
+            <!-- ===== 循环顺序对比图 ===== -->
+            <div class="diagram-wrap">
+              <svg width="720" height="300" viewBox="0 0 720 300">
+                <!-- V1 -->
+                <text x="160" y="24" fill="#ffb454" font-size="15" font-weight="700" text-anchor="middle">V1 循环</text>
+                <rect x="20" y="35" width="280" height="240" rx="12" fill="rgba(255,180,84,0.05)" stroke="#ffb454" stroke-width="1"/>
+
+                <!-- outer: K/V -->
+                <rect x="35" y="50" width="250" height="210" rx="10" fill="rgba(255,180,84,0.08)" stroke="#ffb454" stroke-width="0.8" stroke-dasharray="4,3"/>
+                <text x="45" y="72" fill="#ffb454" font-size="12" font-weight="600">外层: for j (K/V blocks)</text>
+
+                <!-- inner: Q -->
+                <rect x="50" y="82" width="220" height="165" rx="8" fill="rgba(126,184,255,0.08)" stroke="#7eb8ff" stroke-width="0.8" stroke-dasharray="4,3"/>
+                <text x="63" y="102" fill="#7eb8ff" font-size="12" font-weight="600">内层: for i (Q blocks)</text>
+
+                <text x="70" y="128" fill="#9ab8bf" font-size="11">load Q_i, O_i, m_i, l_i</text>
+                <text x="70" y="148" fill="#9ab8bf" font-size="11">compute S_ij</text>
+                <text x="70" y="168" fill="#9ab8bf" font-size="11">update O_i, m_i, l_i</text>
+                <text x="70" y="188" fill="#ff8f8f" font-size="11" font-weight="600">write O_i back to HBM ✗</text>
+                <text x="70" y="218" fill="#ff8f8f" font-size="11">→ O_i 被反复读/写 ⌈N/Bc⌉ 次</text>
+                <text x="70" y="236" fill="#ff8f8f" font-size="11">→ 额外 HBM 流量</text>
+
+                <!-- V2 -->
+                <text x="540" y="24" fill="#55d6be" font-size="15" font-weight="700" text-anchor="middle">V2 循环</text>
+                <rect x="400" y="35" width="280" height="240" rx="12" fill="rgba(85,214,190,0.05)" stroke="#55d6be" stroke-width="1"/>
+
+                <rect x="415" y="50" width="250" height="210" rx="10" fill="rgba(126,184,255,0.08)" stroke="#7eb8ff" stroke-width="0.8" stroke-dasharray="4,3"/>
+                <text x="425" y="72" fill="#7eb8ff" font-size="12" font-weight="600">外层: for i (Q blocks)</text>
+
+                <rect x="430" y="82" width="220" height="165" rx="8" fill="rgba(255,180,84,0.08)" stroke="#ffb454" stroke-width="0.8" stroke-dasharray="4,3"/>
+                <text x="443" y="102" fill="#ffb454" font-size="12" font-weight="600">内层: for j (K/V blocks)</text>
+
+                <text x="450" y="128" fill="#9ab8bf" font-size="11">load K_j, V_j</text>
+                <text x="450" y="148" fill="#9ab8bf" font-size="11">compute S_ij</text>
+                <text x="450" y="168" fill="#9ab8bf" font-size="11">update O_i, m_i, l_i (in SRAM)</text>
+                <text x="450" y="192" fill="#55d6be" font-size="11" font-weight="600">O_i 始终在 SRAM ✓</text>
+                <text x="450" y="218" fill="#55d6be" font-size="11">→ O_i 只在最后写回一次</text>
+                <text x="450" y="236" fill="#55d6be" font-size="11">→ 节省大量 HBM 带宽</text>
+
+                <!-- Arrow -->
+                <line x1="310" y1="155" x2="395" y2="155" stroke="var(--accent)" stroke-width="2" marker-end="url(#a1)"/>
+                <text x="330" y="148" fill="var(--accent)" font-size="11" font-weight="600">改进</text>
+              </svg>
+            </div>
+          </div>
+        </details>
+
+        <details open>
+          <summary>优化 ③：Warp 级并行</summary>
+          <div class="details-body">
+            <div class="grid two">
+              <div class="stat">
+                <strong>V1: Split-K warp 策略</strong>
+                <p>不同 warp 处理 K/V 的不同 split → 各 warp 计算 partial O → 需通过 shared memory 做 reduce → <span style="color:var(--danger)">同步 + shared memory 读写开销大</span></p>
+              </div>
+              <div class="stat">
+                <strong>V2: Split-Q warp 策略</strong>
+                <p>不同 warp 处理 Q 的不同行 → 各 warp 独立拥有完整的 O_i → <span style="color:var(--ok)">无需 warp 间通信，无 reduce 开销</span></p>
+              </div>
+            </div>
+          </div>
+        </details>
+
+        <details>
+          <summary>优化 ④：因果遮罩跳过</summary>
+          <div class="details-body">
+            <p>在 causal attention 中，当 Q block 的 token 位置全部早于 K block 的 token 位置时，
+               该 S block 全部被 mask 为 −∞，可以跳过整个 block 的计算。理论上 causal attention 约快 1.7–1.8×。</p>
+          </div>
+        </details>
+
+        <div class="highlight-row" style="margin-top: 14px;">
+          <strong>峰值利用率</strong>：A100 上约 <strong>70%</strong> 理论峰值 FLOPS（V1 仅 25–40%），
+          forward 约 2×加速，backward 约 1.7×，端到端训练约 <strong>2× 加速</strong>。
+        </div>
+      </section>
+
+      <!-- ═══════════ 7. V3 ═══════════ -->
+      <section class="section" id="v3">
+        <h2>7. FlashAttention V3</h2>
+        <p>
+          V3 (Shah et al., 2024) 针对 NVIDIA Hopper 架构（H100）的硬件特性做深度适配。
+          核心理念：利用 Hopper 新指令实现异步流水线 + 计算/搬运 overlap。
+        </p>
+
+        <details open>
+          <summary>Warp Specialization — 生产者/消费者流水线</summary>
+          <div class="details-body">
+            <!-- ===== Warp Specialization 流水线图 ===== -->
+            <div class="diagram-wrap">
+              <svg width="750" height="280" viewBox="0 0 750 280">
+                <!-- Timeline axis -->
+                <line x1="80" y1="235" x2="720" y2="235" stroke="#9ab8bf" stroke-width="1"/>
+                <text x="380" y="260" fill="#9ab8bf" font-size="12" text-anchor="middle">时间 →</text>
+
+                <!-- Producer warp row -->
+                <text x="18" y="80" fill="#ffb454" font-size="13" font-weight="700">Producer</text>
+                <text x="18" y="96" fill="#9ab8bf" font-size="10">Warp (TMA)</text>
+                <!-- blocks -->
+                <rect x="100" y="60" width="120" height="46" rx="8" fill="rgba(255,180,84,0.15)" stroke="#ffb454" stroke-width="1.2"/>
+                <text x="115" y="88" fill="#ffb454" font-size="11" font-weight="600">Load K₁,V₁→SMEM</text>
+                <rect x="230" y="60" width="120" height="46" rx="8" fill="rgba(255,180,84,0.15)" stroke="#ffb454" stroke-width="1.2"/>
+                <text x="245" y="88" fill="#ffb454" font-size="11" font-weight="600">Load K₂,V₂→SMEM</text>
+                <rect x="360" y="60" width="120" height="46" rx="8" fill="rgba(255,180,84,0.15)" stroke="#ffb454" stroke-width="1.2"/>
+                <text x="375" y="88" fill="#ffb454" font-size="11" font-weight="600">Load K₃,V₃→SMEM</text>
+                <rect x="490" y="60" width="120" height="46" rx="8" fill="rgba(255,180,84,0.15)" stroke="#ffb454" stroke-width="1.2"/>
+                <text x="505" y="88" fill="#ffb454" font-size="11" font-weight="600">Load K₄,V₄→SMEM</text>
+
+                <!-- Consumer warp row -->
+                <text x="18" y="160" fill="#55d6be" font-size="13" font-weight="700">Consumer</text>
+                <text x="18" y="176" fill="#9ab8bf" font-size="10">Warp (WGMMA)</text>
+                <!-- blocks staggered -->
+                <rect x="165" y="140" width="120" height="46" rx="8" fill="rgba(85,214,190,0.15)" stroke="#55d6be" stroke-width="1.2"/>
+                <text x="180" y="162" fill="#55d6be" font-size="11" font-weight="600">QK₁ᵀ→softmax</text>
+                <text x="194" y="178" fill="#55d6be" font-size="10">→ P₁V₁</text>
+                <rect x="295" y="140" width="120" height="46" rx="8" fill="rgba(85,214,190,0.15)" stroke="#55d6be" stroke-width="1.2"/>
+                <text x="310" y="162" fill="#55d6be" font-size="11" font-weight="600">QK₂ᵀ→softmax</text>
+                <text x="324" y="178" fill="#55d6be" font-size="10">→ P₂V₂</text>
+                <rect x="425" y="140" width="120" height="46" rx="8" fill="rgba(85,214,190,0.15)" stroke="#55d6be" stroke-width="1.2"/>
+                <text x="440" y="162" fill="#55d6be" font-size="11" font-weight="600">QK₃ᵀ→softmax</text>
+                <text x="454" y="178" fill="#55d6be" font-size="10">→ P₃V₃</text>
+                <rect x="555" y="140" width="120" height="46" rx="8" fill="rgba(85,214,190,0.15)" stroke="#55d6be" stroke-width="1.2"/>
+                <text x="570" y="162" fill="#55d6be" font-size="11" font-weight="600">QK₄ᵀ→softmax</text>
+                <text x="584" y="178" fill="#55d6be" font-size="10">→ P₄V₄</text>
+
+                <!-- Overlap arrows -->
+                <line x1="220" y1="106" x2="225" y2="138" stroke="#7fe3b0" stroke-width="1.2" stroke-dasharray="3,2" marker-end="url(#a1)"/>
+                <line x1="350" y1="106" x2="355" y2="138" stroke="#7fe3b0" stroke-width="1.2" stroke-dasharray="3,2" marker-end="url(#a1)"/>
+                <line x1="480" y1="106" x2="485" y2="138" stroke="#7fe3b0" stroke-width="1.2" stroke-dasharray="3,2" marker-end="url(#a1)"/>
+                <line x1="610" y1="106" x2="615" y2="138" stroke="#7fe3b0" stroke-width="1.2" stroke-dasharray="3,2" marker-end="url(#a1)"/>
+
+                <!-- overlap region -->
+                <rect x="230" y="55" width="90" height="138" rx="6" fill="none" stroke="rgba(127,227,176,0.3)" stroke-width="1" stroke-dasharray="4,3"/>
+                <text x="240" y="215" fill="#7fe3b0" font-size="11" font-weight="600">← overlap: 搬 K₂ 的同时算 K₁ →</text>
+              </svg>
+            </div>
+            <ul>
+              <li><strong>Producer warp</strong>：使用 TMA (Tensor Memory Accelerator) 异步地将 K/V blocks 从 HBM 搬到 Shared Memory</li>
+              <li><strong>Consumer warp</strong>：使用 WGMMA 指令在 Tensor Core 上做 QKᵀ 和 PV 的矩阵乘</li>
+              <li>两者通过 barrier 同步，形成流水线 —— 搬运和计算完全 overlap</li>
+            </ul>
+          </div>
+        </details>
+
+        <details open>
+          <summary>Softmax 与 GEMM 的 Pingpong Overlap</summary>
+          <div class="details-body">
+            <p>Softmax 中的 exp / sum / div 使用 CUDA Core（math pipeline），
+               而 GEMM 使用 Tensor Core（矩阵乘 pipeline）。两者硬件单元不同，可以并行：</p>
+            <div class="diagram-wrap">
+              <svg width="660" height="160" viewBox="0 0 660 160">
+                <text x="20" y="40" fill="#7eb8ff" font-size="12" font-weight="600">Tensor Core:</text>
+                <rect x="140" y="22" width="100" height="32" rx="6" fill="rgba(126,184,255,0.15)" stroke="#7eb8ff" stroke-width="1"/>
+                <text x="157" y="43" fill="#7eb8ff" font-size="11">QK₁ᵀ</text>
+                <rect x="260" y="22" width="100" height="32" rx="6" fill="rgba(85,214,190,0.15)" stroke="#55d6be" stroke-width="1"/>
+                <text x="280" y="43" fill="#55d6be" font-size="11">P₁V₁</text>
+                <rect x="380" y="22" width="100" height="32" rx="6" fill="rgba(126,184,255,0.15)" stroke="#7eb8ff" stroke-width="1"/>
+                <text x="397" y="43" fill="#7eb8ff" font-size="11">QK₂ᵀ</text>
+                <rect x="500" y="22" width="100" height="32" rx="6" fill="rgba(85,214,190,0.15)" stroke="#55d6be" stroke-width="1"/>
+                <text x="520" y="43" fill="#55d6be" font-size="11">P₂V₂</text>
+
+                <text x="20" y="100" fill="#ffb454" font-size="12" font-weight="600">CUDA Core:</text>
+                <rect x="260" y="82" width="100" height="32" rx="6" fill="rgba(255,180,84,0.15)" stroke="#ffb454" stroke-width="1"/>
+                <text x="272" y="103" fill="#ffb454" font-size="11">softmax₁</text>
+                <rect x="500" y="82" width="100" height="32" rx="6" fill="rgba(255,180,84,0.15)" stroke="#ffb454" stroke-width="1"/>
+                <text x="512" y="103" fill="#ffb454" font-size="11">softmax₂</text>
+
+                <!-- overlap indicator -->
+                <rect x="260" y="18" width="100" height="100" rx="8" fill="none" stroke="rgba(127,227,176,0.25)" stroke-width="1" stroke-dasharray="4,3"/>
+                <text x="270" y="135" fill="#7fe3b0" font-size="10">并行执行</text>
+                <rect x="500" y="18" width="100" height="100" rx="8" fill="none" stroke="rgba(127,227,176,0.25)" stroke-width="1" stroke-dasharray="4,3"/>
+                <text x="510" y="135" fill="#7fe3b0" font-size="10">并行执行</text>
+              </svg>
+            </div>
+          </div>
+        </details>
+
+        <details>
+          <summary>WGMMA 指令</summary>
+          <div class="details-body">
+            <p>Hopper 的 Warp Group Matrix Multiply-Accumulate 指令可直接从 Shared Memory 发起矩阵乘法到 Tensor Core，
+               绕过寄存器文件的中转，提高吞吐量。V3 的所有 GEMM（QKᵀ 和 PV）都使用 WGMMA。</p>
+          </div>
+        </details>
+
+        <details>
+          <summary>FP8 低精度支持</summary>
+          <div class="details-body">
+            <ul>
+              <li><strong>Block Quantization</strong>：对每个 tile 使用独立的 scale factor，而非全局量化，减少精度损失</li>
+              <li><strong>Incoherent Processing</strong>：对 Q/K 乘以随机正交矩阵，使异常值分散到各维度，提高量化后的数值稳定性</li>
+            </ul>
+            <p style="margin-top:10px;">FP8 模式下 H100 可达约 <strong>1.2 PFLOPS</strong> 的 attention 吞吐。</p>
+          </div>
+        </details>
+
+        <div class="highlight-row" style="margin-top: 14px;">
+          <strong>H100 性能</strong>：FP16 达到 ~<strong>740 TFLOPS</strong>（~75% 峰值利用率），相比未优化的 Hopper FlashAttention-2 提升 <strong>1.5–2.0×</strong>。
+        </div>
+      </section>
+
+      <!-- ═══════════ 8. Compare ═══════════ -->
+      <section class="section" id="compare">
+        <h2>8. 版本对比总览</h2>
+        <table>
+          <tr>
+            <th></th>
+            <th><span class="pill v1" style="margin:0">V1</span></th>
+            <th><span class="pill v2" style="margin:0">V2</span></th>
+            <th><span class="pill v3" style="margin:0">V3</span></th>
+          </tr>
+          <tr>
+            <td><strong>核心贡献</strong></td>
+            <td>Tiling + Online Softmax，消除 N² HBM IO</td>
+            <td>循环重排 + Warp 并行，极致利用 A100</td>
+            <td>Hopper 异步流水线 + WGMMA + FP8</td>
+          </tr>
+          <tr>
+            <td><strong>目标硬件</strong></td>
+            <td>A100 (Ampere)</td>
+            <td>A100 (Ampere)</td>
+            <td>H100 (Hopper)</td>
+          </tr>
+          <tr>
+            <td><strong>循环顺序</strong></td>
+            <td>外 K/V → 内 Q</td>
+            <td>外 Q → 内 K/V</td>
+            <td>外 Q → 内 K/V（+ async）</td>
+          </tr>
+          <tr>
+            <td><strong>Warp 策略</strong></td>
+            <td>Split-K（需 reduce）</td>
+            <td>Split-Q（无 reduce）</td>
+            <td>Warp Specialization（producer/consumer）</td>
+          </tr>
+          <tr>
+            <td><strong>数据搬运</strong></td>
+            <td>同步 global → shared</td>
+            <td>同步 global → shared</td>
+            <td>异步 TMA（与计算 overlap）</td>
+          </tr>
+          <tr>
+            <td><strong>GEMM 指令</strong></td>
+            <td>mma.sync (Ampere)</td>
+            <td>mma.sync (Ampere)</td>
+            <td>WGMMA (Hopper，直接从 SMEM)</td>
+          </tr>
+          <tr>
+            <td><strong>Softmax 加速</strong></td>
+            <td>标准 online softmax</td>
+            <td>延迟归一化，减少 rescale</td>
+            <td>Pingpong：softmax 与 GEMM 并行</td>
+          </tr>
+          <tr>
+            <td><strong>精度</strong></td>
+            <td>FP16 / BF16</td>
+            <td>FP16 / BF16</td>
+            <td>FP16 / BF16 / FP8</td>
+          </tr>
+          <tr>
+            <td><strong>GPU 利用率</strong></td>
+            <td>~25–40%</td>
+            <td>~70%</td>
+            <td>~75%</td>
+          </tr>
+          <tr>
+            <td><strong>论文</strong></td>
+            <td>Dao et al., 2022</td>
+            <td>Dao, 2023</td>
+            <td>Shah et al., 2024</td>
+          </tr>
+        </table>
+
+        <div class="highlight-row" style="margin-top: 16px;">
+          <strong>一句话总结</strong>：V1 解决 IO 瓶颈（tiling + online softmax），V2 优化 GPU 利用率（循环重排 + warp 并行），V3 深度适配 Hopper 硬件（异步流水线 + warp specialization + FP8）。
+        </div>
+      </section>
+
+      <!-- ═══════════ 9. Refs ═══════════ -->
+      <section class="section" id="refs">
+        <h2>9. 参考文献</h2>
+        <ul>
+          <li>Dao, Tri, et al. "FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness." NeurIPS 2022.</li>
+          <li>Dao, Tri. "FlashAttention-2: Faster Attention with Better Parallelism and Work Partitioning." ICLR 2024.</li>
+          <li>Shah, Jay, et al. "FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision." NeurIPS 2024.</li>
+          <li>Milakov, Maxim, and Natalia Gimelshein. "Online normalizer calculation for softmax." arXiv:1805.02867, 2018.</li>
+          <li>NVIDIA. "CUDA C++ Programming Guide — Hopper Architecture." 2023.</li>
+        </ul>
+      </section>
+
+    </main>
+    </div>
+
+    <footer class="footer">
+      nano-vllm-cpp docs · FlashAttention V1–V3 优化详解 · 包含 Tiling 分块、Online Softmax、循环重排、Warp Specialization 等核心配图
+    </footer>
+  </div>
+</body>
+</html>

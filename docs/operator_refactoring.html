@@ -1,0 +1,1155 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>nano-vllm-cpp 算子层重构方案</title>
+  <style>
+    :root {
+      --bg: #07131a;
+      --bg-soft: #0d1f28;
+      --panel: rgba(13, 31, 40, 0.82);
+      --panel-strong: rgba(10, 24, 32, 0.94);
+      --line: rgba(123, 178, 194, 0.24);
+      --text: #e6f2f4;
+      --muted: #9ab8bf;
+      --accent: #55d6be;
+      --accent-2: #ffb454;
+      --danger: #ff8f8f;
+      --ok: #7fe3b0;
+      --shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+      --radius: 20px;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      color: var(--text);
+      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(85, 214, 190, 0.16), transparent 28%),
+        radial-gradient(circle at top right, rgba(255, 180, 84, 0.14), transparent 26%),
+        linear-gradient(180deg, #061018 0%, #09151d 42%, #07131a 100%);
+      line-height: 1.65;
+    }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .page {
+      width: min(1180px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 28px 0 64px;
+    }
+
+    .hero {
+      padding: 34px;
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      background: linear-gradient(135deg, rgba(10, 24, 32, 0.96), rgba(13, 31, 40, 0.88));
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      position: relative;
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: auto -80px -80px auto;
+      width: 240px;
+      height: 240px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(85, 214, 190, 0.18), transparent 68%);
+      pointer-events: none;
+    }
+
+    .eyebrow {
+      margin: 0 0 12px;
+      font-size: 12px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--accent-2);
+    }
+
+    h1, h2, h3 { margin: 0; line-height: 1.2; font-weight: 650; }
+    h1 { font-size: clamp(34px, 4vw, 54px); max-width: 12em; }
+    h2 { font-size: 24px; margin-bottom: 14px; }
+    h3 { font-size: 18px; margin-bottom: 10px; }
+
+    p { margin: 0; color: var(--muted); }
+    .hero p { max-width: 820px; font-size: 16px; margin-top: 14px; }
+
+    .badge-row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+    .badge {
+      padding: 4px 14px;
+      border-radius: 100px;
+      background: rgba(85, 214, 190, 0.12);
+      border: 1px solid rgba(85, 214, 190, 0.24);
+      font-size: 12px;
+      color: var(--accent);
+      white-space: nowrap;
+    }
+    .badge.warn {
+      background: rgba(255, 180, 84, 0.12);
+      border-color: rgba(255, 180, 84, 0.24);
+      color: var(--accent-2);
+    }
+    .badge.danger {
+      background: rgba(255, 143, 143, 0.12);
+      border-color: rgba(255, 143, 143, 0.24);
+      color: var(--danger);
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 200px 1fr;
+      gap: 28px;
+      margin-top: 28px;
+    }
+
+    .toc {
+      position: sticky;
+      top: 24px;
+      align-self: start;
+      padding: 18px 20px;
+      border-radius: var(--radius);
+      background: var(--panel);
+      border: 1px solid var(--line);
+    }
+
+    .toc h2 { font-size: 14px; margin-bottom: 10px; color: var(--accent-2); }
+    .toc ol { padding-left: 18px; margin: 0; }
+    .toc li { margin-bottom: 6px; }
+    .toc a { font-size: 13px; color: var(--muted); }
+    .toc a:hover { color: var(--accent); }
+
+    .content { min-width: 0; }
+
+    .section {
+      margin-bottom: 32px;
+      padding: 26px 28px;
+      border-radius: var(--radius);
+      background: var(--panel);
+      border: 1px solid var(--line);
+    }
+
+    .section p { margin-top: 10px; }
+    .section p:first-of-type { margin-top: 6px; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 14px;
+      font-size: 14px;
+    }
+
+    th, td {
+      text-align: left;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    th {
+      font-weight: 640;
+      color: var(--accent);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    td { color: var(--muted); }
+    td:first-child { color: var(--text); font-weight: 500; }
+    tr:last-child td { border-bottom: none; }
+
+    .code {
+      margin-top: 14px;
+      padding: 16px 20px;
+      border-radius: 12px;
+      background: rgba(0, 0, 0, 0.36);
+      font-family: "JetBrains Mono", "Fira Code", monospace;
+      font-size: 13px;
+      line-height: 1.7;
+      white-space: pre-wrap;
+      word-break: break-all;
+      color: var(--text);
+      overflow-x: auto;
+    }
+
+    .grid { display: grid; gap: 16px; margin-top: 16px; }
+    .grid.two { grid-template-columns: 1fr 1fr; }
+    .grid.three { grid-template-columns: 1fr 1fr 1fr; }
+
+    .card {
+      padding: 18px 20px;
+      border-radius: 16px;
+      background: var(--panel-strong);
+      border: 1px solid var(--line);
+    }
+
+    .card strong { display: block; margin-bottom: 6px; color: var(--text); font-weight: 640; }
+    .card ul { padding-left: 18px; margin: 8px 0 0; color: var(--muted); }
+    .card li { margin-bottom: 4px; }
+
+    .stat {
+      padding: 18px 20px;
+      border-radius: 16px;
+      background: var(--panel-strong);
+      border: 1px solid var(--line);
+    }
+
+    .stat strong { display: block; margin-bottom: 6px; color: var(--accent-2); }
+
+    details {
+      margin-top: 16px;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+    }
+
+    summary {
+      padding: 14px 18px;
+      cursor: pointer;
+      font-weight: 600;
+      background: var(--panel-strong);
+      border-bottom: 1px solid transparent;
+      transition: border-color 0.2s;
+    }
+
+    details[open] summary { border-bottom-color: var(--line); }
+    summary:hover { color: var(--accent); }
+
+    .details-body { padding: 16px 18px; }
+    .details-body ul { padding-left: 18px; margin: 8px 0 0; color: var(--muted); }
+    .details-body li { margin-bottom: 6px; }
+    .details-body p { margin-top: 8px; }
+
+    .pill {
+      display: inline-block;
+      margin-top: 10px;
+      padding: 3px 12px;
+      border-radius: 100px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .pill.before {
+      background: rgba(255, 143, 143, 0.14);
+      border: 1px solid rgba(255, 143, 143, 0.3);
+      color: var(--danger);
+    }
+
+    .pill.after {
+      background: rgba(127, 227, 176, 0.14);
+      border: 1px solid rgba(127, 227, 176, 0.3);
+      color: var(--ok);
+    }
+
+    .pill.step {
+      background: rgba(255, 180, 84, 0.14);
+      border: 1px solid rgba(255, 180, 84, 0.3);
+      color: var(--accent-2);
+    }
+
+    .flow {
+      margin-top: 14px;
+      padding: 18px 20px;
+      border-radius: 14px;
+      background: rgba(0, 0, 0, 0.28);
+      font-family: "JetBrains Mono", "Fira Code", monospace;
+      font-size: 13px;
+      line-height: 1.8;
+      color: var(--muted);
+    }
+
+    .flow-row { margin-bottom: 6px; }
+    .flow-row:last-child { margin-bottom: 0; }
+
+    .arrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 0;
+      margin: 18px 0;
+      flex-wrap: wrap;
+    }
+
+    .arrow-item {
+      padding: 8px 16px;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 600;
+      white-space: nowrap;
+      background: var(--panel-strong);
+      border: 1px solid var(--line);
+    }
+
+    .arrow-sep {
+      padding: 0 6px;
+      color: var(--accent);
+      font-weight: bold;
+      font-size: 16px;
+    }
+
+    .footer {
+      margin-top: 40px;
+      padding: 20px 28px;
+      border-radius: var(--radius);
+      border: 1px solid var(--line);
+      background: var(--panel);
+      text-align: center;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    @media (max-width: 980px) {
+      .layout { grid-template-columns: 1fr; }
+      .toc { position: static; }
+      .grid.two, .grid.three { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="hero">
+      <p class="eyebrow">nano-vllm-cpp / docs</p>
+      <h1>算子层重构方案</h1>
+      <p>
+        当前算子层的核心问题是 kernel_ops.cu 作为一个 1547 行的单体文件承载了 14 个 CUDA kernel、全部 launch 函数和公共验证逻辑，
+        同时 layers/ 目录混合了无状态 kernel 文件与有状态的 Module wrapper。本文档给出一套拆分方案，把无状态 kernel
+        按功能域拆进 kernels/ 子目录，让 layers/ 专注于有状态算子。
+      </p>
+      <div class="badge-row">
+        <span class="badge danger">kernel_ops.cu: 1547 行单体文件</span>
+        <span class="badge warn">layers/ 混合: kernel + Module</span>
+        <span class="badge">目标: kernels/ 无状态 + layers/ 有状态</span>
+        <span class="badge">不改变公共 API 签名</span>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside class="toc">
+        <h2>目录</h2>
+        <ol>
+          <li><a href="#problem">现状与问题</a></li>
+          <li><a href="#target">目标目录结构</a></li>
+          <li><a href="#mapping">Kernel 拆分映射</a></li>
+          <li><a href="#header">头文件设计</a></li>
+          <li><a href="#layers">Layers 层保留项</a></li>
+          <li><a href="#steps">执行步骤</a></li>
+          <li><a href="#cmake">CMake 适配</a></li>
+          <li><a href="#tests">测试策略</a></li>
+          <li><a href="#risks">风险与约束</a></li>
+        </ol>
+      </aside>
+
+      <main class="content">
+
+        <!-- ======================================== 1. 现状与问题 ======================================== -->
+        <section class="section" id="problem">
+          <h2>现状与问题</h2>
+          <p>
+            当前 src/layers/ 目录同时承担两种角色: (1) 无状态 CUDA kernel 集合，(2) 有状态的 Module wrapper。这导致几个具体问题:
+          </p>
+          <div class="grid three" style="margin-top: 16px;">
+            <div class="stat">
+              <strong>单体膨胀</strong>
+              kernel_ops.cu 已达 1547 行，包含 14 个 __global__ kernel + 12 个 launch wrapper + 12 个公共 API 函数 +
+              通用 validation 辅助。任何新增 kernel 都只能往末尾追加。
+            </div>
+            <div class="stat">
+              <strong>职责混淆</strong>
+              src/layers/ 放了 kernel_ops.cu、attention.cu (纯 CUDA kernel)，也放了 activation.cpp、linear.cpp (有状态 Module)。
+              二者的抽象层次完全不同，混在一起增加理解成本。
+            </div>
+            <div class="stat">
+              <strong>编译耦合</strong>
+              修改 rms_norm kernel 就要重新编译整个 kernel_ops.cu (1547 行)，nvcc 编译时间随文件大小非线性增长。
+              拆分后每个 .cu 独立编译，增量构建更快。
+            </div>
+          </div>
+
+          <details open>
+            <summary>当前文件清单</summary>
+            <div class="details-body">
+              <div class="code">include/layers/
+├── activation.h          # Module: SiluAndMul wrapper
+├── attention.h           # Module: Attention (有状态, 持有 kv_cache 引用)
+├── embed_head.h          # Module: Embedding + LM Head
+├── kernel_ops.h          # 🔴 所有无状态 kernel 的统一头文件 (12 个函数声明)
+├── layernorm.h           # Module: RMSNorm wrapper
+├── linear.h              # Module: Linear 家族
+├── rotary_embedding.h    # Module: RotaryEmbedding wrapper
+└── sampler.h             # Module: Sampler
+
+src/layers/
+├── activation.cpp        # Module 实现
+├── attention.cpp         # Module 实现 (调用 attention.cu kernel + kernel_ops)
+├── attention.cu          # 🔴 3 个 __global__ attention kernel (731 行)
+├── embed_head.cpp        # Module 实现
+├── kernel_ops.cpp        # phase1_kernel_specs() 元数据
+├── kernel_ops.cu         # 🔴 14 个 __global__ kernel (1547 行, 核心痛点)
+├── layernorm.cpp         # Module 实现
+├── linear.cpp            # Module 实现
+├── rotary_embedding.cpp  # Module 实现
+└── sampler.cpp           # Module 实现</div>
+            </div>
+          </details>
+        </section>
+
+        <!-- ======================================== 2. 目标目录结构 ======================================== -->
+        <section class="section" id="target">
+          <h2>目标目录结构</h2>
+          <p>
+            核心思路: 新建 kernels/ 目录存放所有无状态 CUDA kernel，layers/ 目录只保留有状态的 Module wrapper 和它们的 .cpp 实现。
+          </p>
+          <div class="grid two">
+            <div class="card">
+              <strong>重构前</strong>
+              <div class="code" style="margin-top: 8px;">include/layers/kernel_ops.h   # 统一头文件
+src/layers/kernel_ops.cu      # 1547 行全部 kernel
+src/layers/attention.cu       # 731 行 attention kernel
+src/layers/kernel_ops.cpp     # 元数据</div>
+              <div class="pill before">全部挤在 layers/</div>
+            </div>
+            <div class="card">
+              <strong>重构后</strong>
+              <div class="code" style="margin-top: 8px;">include/kernels/
+├── kernel_types.h            # 公共类型 + validation
+├── rms_norm.h
+├── rotary.h
+├── activation.h
+├── bias_add.h
+├── gather.h
+├── embedding.h
+├── sampling.h
+├── kvcache.h
+├── attention.h
+└── split_qkv.h
+
+src/kernels/
+├── kernel_types.cu           # 公共 validation + specs
+├── rms_norm.cu
+├── rotary.cu
+├── activation.cu
+├── bias_add.cu
+├── gather.cu
+├── embedding.cu
+├── sampling.cu
+├── kvcache.cu
+├── attention.cu
+└── split_qkv.cu</div>
+              <div class="pill after">按功能域独立文件</div>
+            </div>
+          </div>
+
+          <details>
+            <summary>layers/ 保留的文件</summary>
+            <div class="details-body">
+              <div class="code">include/layers/
+├── activation.h            # Module: SiluAndMul
+├── attention.h             # Module: Attention
+├── embed_head.h            # Module: Embedding + LM Head
+├── kernel_ops.h            # ⚠️ 保留为 umbrella header, #include 所有 kernels/*.h
+├── layernorm.h             # Module: RMSNorm
+├── linear.h                # Module: Linear 家族
+├── rotary_embedding.h      # Module: RotaryEmbedding
+└── sampler.h               # Module: Sampler
+
+src/layers/
+├── activation.cpp
+├── attention.cpp           # 调用 kernels/attention.h 而非直接依赖 .cu
+├── embed_head.cpp
+├── layernorm.cpp
+├── linear.cpp
+├── rotary_embedding.cpp
+└── sampler.cpp</div>
+              <p style="margin-top: 10px;">
+                kernel_ops.h 保留为 umbrella header，内部改为 #include 所有 kernels/*.h 头文件。
+                这样已有的 #include "layers/kernel_ops.h" 代码无需改动。
+              </p>
+            </div>
+          </details>
+        </section>
+
+        <!-- ======================================== 3. 拆分映射 ======================================== -->
+        <section class="section" id="mapping">
+          <h2>Kernel 拆分映射</h2>
+          <p>
+            下表列出 kernel_ops.cu 中每个 __global__ kernel 的目标归属文件，以及 attention.cu 中 3 个 kernel 的位置。
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>__global__ Kernel</th>
+                <th>当前位置</th>
+                <th>目标文件</th>
+                <th>公共 API</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>rms_norm_kernel</td>
+                <td>kernel_ops.cu:263</td>
+                <td>kernels/rms_norm.cu</td>
+                <td>rms_norm()</td>
+              </tr>
+              <tr>
+                <td>rms_norm_f32x4_kernel</td>
+                <td>kernel_ops.cu:292</td>
+                <td>kernels/rms_norm.cu</td>
+                <td>rms_norm() [f32 fast path]</td>
+              </tr>
+              <tr>
+                <td>add_rms_norm_kernel</td>
+                <td>kernel_ops.cu:329</td>
+                <td>kernels/rms_norm.cu</td>
+                <td>add_rms_norm()</td>
+              </tr>
+              <tr>
+                <td>add_rms_norm_f32x4_kernel</td>
+                <td>kernel_ops.cu:363</td>
+                <td>kernels/rms_norm.cu</td>
+                <td>add_rms_norm() [f32 fast path]</td>
+              </tr>
+              <tr>
+                <td>apply_rotary_kernel</td>
+                <td>kernel_ops.cu:411</td>
+                <td>kernels/rotary.cu</td>
+                <td>rotary_embedding()</td>
+              </tr>
+              <tr>
+                <td>apply_rotary_f32x2_kernel</td>
+                <td>kernel_ops.cu:445</td>
+                <td>kernels/rotary.cu</td>
+                <td>rotary_embedding() [f32 fast path]</td>
+              </tr>
+              <tr>
+                <td>silu_and_mul_kernel</td>
+                <td>kernel_ops.cu:492</td>
+                <td>kernels/activation.cu</td>
+                <td>silu_and_mul()</td>
+              </tr>
+              <tr>
+                <td>add_bias_kernel</td>
+                <td>kernel_ops.cu:515</td>
+                <td>kernels/bias_add.cu</td>
+                <td>add_bias()</td>
+              </tr>
+              <tr>
+                <td>add_inplace_kernel</td>
+                <td>kernel_ops.cu:529</td>
+                <td>kernels/bias_add.cu</td>
+                <td>add_inplace()</td>
+              </tr>
+              <tr>
+                <td>gather_last_tokens_kernel</td>
+                <td>kernel_ops.cu:540</td>
+                <td>kernels/gather.cu</td>
+                <td>gather_last_tokens()</td>
+              </tr>
+              <tr>
+                <td>embedding_lookup_kernel</td>
+                <td>kernel_ops.cu:563</td>
+                <td>kernels/embedding.cu</td>
+                <td>embedding_lookup()</td>
+              </tr>
+              <tr>
+                <td>sample_tokens_kernel</td>
+                <td>kernel_ops.cu:592</td>
+                <td>kernels/sampling.cu</td>
+                <td>sample_tokens()</td>
+              </tr>
+              <tr>
+                <td>store_kvcache_kernel</td>
+                <td>kernel_ops.cu:643</td>
+                <td>kernels/kvcache.cu</td>
+                <td>store_kvcache()</td>
+              </tr>
+              <tr>
+                <td>split_qkv_kernel</td>
+                <td>kernel_ops.cu:1506</td>
+                <td>kernels/split_qkv.cu</td>
+                <td>split_qkv()</td>
+              </tr>
+              <tr>
+                <td>prefill_dense_attention_kernel</td>
+                <td>attention.cu:62</td>
+                <td>kernels/attention.cu</td>
+                <td>prefill_dense_attention()</td>
+              </tr>
+              <tr>
+                <td>prefill_paged_attention_kernel</td>
+                <td>attention.cu:158</td>
+                <td>kernels/attention.cu</td>
+                <td>prefill_paged_attention()</td>
+              </tr>
+              <tr>
+                <td>decode_paged_attention_kernel</td>
+                <td>attention.cu:269</td>
+                <td>kernels/attention.cu</td>
+                <td>decode_paged_attention()</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <details>
+            <summary>公共验证函数归属</summary>
+            <div class="details-body">
+              <p>
+                kernel_ops.cu 前 210 行包含 5 个辅助验证函数 (ensure_cuda_tensor / ensure_same_device / ensure_same_shape /
+                ensure_same_dtype / validate_supported_dtype) 以及 dtype dispatch 宏。
+                这些被所有 kernel 文件共用，应提取到 kernels/kernel_types.cu + kernels/kernel_types.h 中。
+              </p>
+              <table>
+                <thead>
+                  <tr>
+                    <th>辅助函数 / 宏</th>
+                    <th>行号</th>
+                    <th>目标文件</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>ensure_cuda_tensor()</td>
+                    <td>117</td>
+                    <td>kernels/kernel_types.cu</td>
+                  </tr>
+                  <tr>
+                    <td>ensure_same_device()</td>
+                    <td>129</td>
+                    <td>kernels/kernel_types.cu</td>
+                  </tr>
+                  <tr>
+                    <td>ensure_same_shape()</td>
+                    <td>138</td>
+                    <td>kernels/kernel_types.cu</td>
+                  </tr>
+                  <tr>
+                    <td>ensure_same_dtype()</td>
+                    <td>147</td>
+                    <td>kernels/kernel_types.cu</td>
+                  </tr>
+                  <tr>
+                    <td>validate_supported_dtype()</td>
+                    <td>209</td>
+                    <td>kernels/kernel_types.cu</td>
+                  </tr>
+                  <tr>
+                    <td>DISPATCH_FLOAT_TYPES / _NO_F32 宏</td>
+                    <td>156-207</td>
+                    <td>kernels/kernel_types.h</td>
+                  </tr>
+                  <tr>
+                    <td>phase1_kernel_specs()</td>
+                    <td>kernel_ops.cpp</td>
+                    <td>kernels/kernel_types.cu</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </details>
+        </section>
+
+        <!-- ======================================== 4. 头文件设计 ======================================== -->
+        <section class="section" id="header">
+          <h2>头文件设计</h2>
+          <p>
+            每个 kernels/*.h 只暴露该功能域的公共 API 函数，不暴露 __global__ kernel 和 launch wrapper。
+            kernel_types.h 提供公共类型、validation 函数声明和 dtype dispatch 宏。
+          </p>
+
+          <details open>
+            <summary>kernels/kernel_types.h 示例</summary>
+            <div class="details-body">
+              <div class="code">#pragma once
+#include "utils/tensor.h"
+#include &lt;cstdint&gt;
+#include &lt;vector&gt;
+
+namespace nano_vllm {
+
+// ---- Kernel metadata ----
+struct KernelSpec {
+    const char* name;
+    const char* purpose;
+};
+const std::vector&lt;KernelSpec&gt;&amp; phase1_kernel_specs();
+
+// ---- Validation helpers (定义在 kernel_types.cu) ----
+void ensure_cuda_tensor(const char* name, const Tensor&amp; tensor);
+void ensure_same_device(const char* lhs_name, const Tensor&amp; lhs,
+                        const char* rhs_name, const Tensor&amp; rhs);
+void ensure_same_shape(const char* lhs_name, const Tensor&amp; lhs,
+                       const char* rhs_name, const Tensor&amp; rhs);
+void ensure_same_dtype(const char* lhs_name, const Tensor&amp; lhs,
+                       const char* rhs_name, const Tensor&amp; rhs);
+void validate_supported_dtype(const char* name, ScalarType dtype);
+
+// ---- Dtype dispatch macros ----
+// DISPATCH_FLOAT_TYPES(dtype, "name", [&] { ... })
+// DISPATCH_FLOAT_TYPES_NO_F32(dtype, "name", [&] { ... })
+...
+
+}  // namespace nano_vllm</div>
+            </div>
+          </details>
+
+          <details>
+            <summary>kernels/rms_norm.h 示例</summary>
+            <div class="details-body">
+              <div class="code">#pragma once
+#include "utils/tensor.h"
+
+namespace nano_vllm {
+
+void rms_norm(const Tensor&amp; input,
+              const Tensor&amp; weight,
+              float eps,
+              Tensor&amp; output,
+              cudaStream_t stream = nullptr);
+
+void add_rms_norm(const Tensor&amp; input,
+                  const Tensor&amp; residual,
+                  const Tensor&amp; weight,
+                  float eps,
+                  Tensor&amp; output,
+                  Tensor&amp; residual_out,
+                  cudaStream_t stream = nullptr);
+
+}  // namespace nano_vllm</div>
+              <p style="margin-top: 10px;">
+                注意: __global__ kernel 和 launch_ wrapper 只出现在 .cu 文件内部，不进入头文件。
+                头文件只包含最终的公共 API，签名与现有 kernel_ops.h 完全一致。
+              </p>
+            </div>
+          </details>
+
+          <details>
+            <summary>layers/kernel_ops.h — 保留为 umbrella header</summary>
+            <div class="details-body">
+              <div class="code">#pragma once
+
+// Umbrella header — 向后兼容已有代码
+// 已有的 #include "layers/kernel_ops.h" 无需修改
+
+#include "kernels/kernel_types.h"
+#include "kernels/rms_norm.h"
+#include "kernels/rotary.h"
+#include "kernels/activation.h"
+#include "kernels/bias_add.h"
+#include "kernels/gather.h"
+#include "kernels/embedding.h"
+#include "kernels/sampling.h"
+#include "kernels/kvcache.h"
+#include "kernels/split_qkv.h"</div>
+              <p style="margin-top: 10px;">
+                kernel_ops.h 退化为纯转发头文件，所有上游 #include "layers/kernel_ops.h" 的代码零改动。
+                新写的代码可以直接 #include 具体的 kernels/*.h，减少编译依赖。
+              </p>
+            </div>
+          </details>
+        </section>
+
+        <!-- ======================================== 5. Layers 层保留项 ======================================== -->
+        <section class="section" id="layers">
+          <h2>Layers 层保留项</h2>
+          <p>
+            重构后 layers/ 只包含有状态的 Module wrapper。每个 Module 通过 #include 对应的 kernels/*.h 调用底层 kernel，不再直接持有 CUDA 代码。
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>Module</th>
+                <th>头文件</th>
+                <th>实现</th>
+                <th>依赖的 kernels/</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>RMSNorm</td>
+                <td>layers/layernorm.h</td>
+                <td>layers/layernorm.cpp</td>
+                <td>kernels/rms_norm.h</td>
+              </tr>
+              <tr>
+                <td>RotaryEmbedding</td>
+                <td>layers/rotary_embedding.h</td>
+                <td>layers/rotary_embedding.cpp</td>
+                <td>kernels/rotary.h</td>
+              </tr>
+              <tr>
+                <td>SiluAndMul</td>
+                <td>layers/activation.h</td>
+                <td>layers/activation.cpp</td>
+                <td>kernels/activation.h</td>
+              </tr>
+              <tr>
+                <td>Attention</td>
+                <td>layers/attention.h</td>
+                <td>layers/attention.cpp</td>
+                <td>kernels/attention.h, kernels/kvcache.h</td>
+              </tr>
+              <tr>
+                <td>Linear 家族</td>
+                <td>layers/linear.h</td>
+                <td>layers/linear.cpp</td>
+                <td>(cuBLAS wrapper, 无直接 kernel 依赖)</td>
+              </tr>
+              <tr>
+                <td>Embedding + LM Head</td>
+                <td>layers/embed_head.h</td>
+                <td>layers/embed_head.cpp</td>
+                <td>kernels/embedding.h, kernels/gather.h</td>
+              </tr>
+              <tr>
+                <td>Sampler</td>
+                <td>layers/sampler.h</td>
+                <td>layers/sampler.cpp</td>
+                <td>kernels/sampling.h</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="grid two" style="margin-top: 16px;">
+            <div class="card">
+              <strong>Module 的职责</strong>
+              <ul>
+                <li>持有权重 Tensor 引用 (weight, bias)</li>
+                <li>持有算子参数 (eps, num_heads, head_dim...)</li>
+                <li>forward() 中组合 kernel 调用 + cuBLAS</li>
+                <li>管理 KV cache 生命周期 (Attention)</li>
+              </ul>
+            </div>
+            <div class="card">
+              <strong>kernels/ 的职责</strong>
+              <ul>
+                <li>无状态: 不持有任何 weight 或缓存</li>
+                <li>输入输出全部通过函数参数传递</li>
+                <li>只依赖 utils/tensor.h 和自身的 kernel_types.h</li>
+                <li>每个 .cu 文件可独立编译</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <!-- ======================================== 6. 执行步骤 ======================================== -->
+        <section class="section" id="steps">
+          <h2>执行步骤</h2>
+          <p>
+            按以下顺序操作，每一步结束后确保 ctest 全部通过，再进入下一步。
+          </p>
+
+          <details open>
+            <summary>Step 1: 创建 kernels/ 目录 + 公共基础</summary>
+            <div class="details-body">
+              <div class="pill step">预计改动: 4 个新文件</div>
+              <ul>
+                <li>创建 include/kernels/ 和 src/kernels/ 目录</li>
+                <li>从 kernel_ops.cu 行 1–210 提取 validation 函数和 dispatch 宏到 kernel_types.h / kernel_types.cu</li>
+                <li>从 kernel_ops.cpp 移动 phase1_kernel_specs() 到 kernel_types.cu</li>
+                <li>CMakeLists.txt 添加 src/kernels/kernel_types.cu</li>
+                <li>验证: cmake --build build && ctest --test-dir build</li>
+              </ul>
+              <div class="code">mkdir -p include/kernels src/kernels
+# 提取公共验证逻辑
+# 新建 include/kernels/kernel_types.h
+# 新建 src/kernels/kernel_types.cu</div>
+            </div>
+          </details>
+
+          <details>
+            <summary>Step 2: 拆分 rms_norm kernel</summary>
+            <div class="details-body">
+              <div class="pill step">从 kernel_ops.cu 提取 4 个 kernel + 4 个 launch + 2 个 API</div>
+              <ul>
+                <li>从 kernel_ops.cu 提取: rms_norm_kernel, rms_norm_f32x4_kernel, add_rms_norm_kernel, add_rms_norm_f32x4_kernel</li>
+                <li>以及对应的 launch_rms_norm, launch_rms_norm_f32, launch_add_rms_norm, launch_add_rms_norm_f32</li>
+                <li>以及公共 API: rms_norm(), add_rms_norm()</li>
+                <li>目标: src/kernels/rms_norm.cu + include/kernels/rms_norm.h</li>
+                <li>从 kernel_ops.cu 删除对应代码</li>
+                <li>验证: cmake --build build && ctest --test-dir build</li>
+              </ul>
+            </div>
+          </details>
+
+          <details>
+            <summary>Step 3: 拆分 rotary kernel</summary>
+            <div class="details-body">
+              <div class="pill step">从 kernel_ops.cu 提取 2 个 kernel + 2 个 launch + 1 个 API</div>
+              <ul>
+                <li>提取: apply_rotary_kernel, apply_rotary_f32x2_kernel</li>
+                <li>以及 launch_rotary_one, launch_rotary_one_f32, rotary_embedding()</li>
+                <li>目标: src/kernels/rotary.cu + include/kernels/rotary.h</li>
+              </ul>
+            </div>
+          </details>
+
+          <details>
+            <summary>Step 4: 拆分 activation / bias_add / gather / embedding / sampling / kvcache / split_qkv</summary>
+            <div class="details-body">
+              <div class="pill step">7 个功能域, 每个 1 个 .cu + 1 个 .h</div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>目标文件</th>
+                    <th>包含 kernel</th>
+                    <th>公共 API</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>activation.cu</td>
+                    <td>silu_and_mul_kernel</td>
+                    <td>silu_and_mul()</td>
+                  </tr>
+                  <tr>
+                    <td>bias_add.cu</td>
+                    <td>add_bias_kernel, add_inplace_kernel</td>
+                    <td>add_bias(), add_inplace()</td>
+                  </tr>
+                  <tr>
+                    <td>gather.cu</td>
+                    <td>gather_last_tokens_kernel</td>
+                    <td>gather_last_tokens()</td>
+                  </tr>
+                  <tr>
+                    <td>embedding.cu</td>
+                    <td>embedding_lookup_kernel</td>
+                    <td>embedding_lookup()</td>
+                  </tr>
+                  <tr>
+                    <td>sampling.cu</td>
+                    <td>sample_tokens_kernel</td>
+                    <td>sample_tokens()</td>
+                  </tr>
+                  <tr>
+                    <td>kvcache.cu</td>
+                    <td>store_kvcache_kernel</td>
+                    <td>store_kvcache()</td>
+                  </tr>
+                  <tr>
+                    <td>split_qkv.cu</td>
+                    <td>split_qkv_kernel</td>
+                    <td>split_qkv()</td>
+                  </tr>
+                </tbody>
+              </table>
+              <p style="margin-top: 10px;">完成后 kernel_ops.cu 应为空 (或可删除)。</p>
+            </div>
+          </details>
+
+          <details>
+            <summary>Step 5: 迁移 attention kernel</summary>
+            <div class="details-body">
+              <div class="pill step">从 src/layers/attention.cu → src/kernels/attention.cu</div>
+              <ul>
+                <li>整文件移动: src/layers/attention.cu → src/kernels/attention.cu</li>
+                <li>提取公共 API 声明到 include/kernels/attention.h</li>
+                <li>修改 src/layers/attention.cpp 的 #include 指向新路径</li>
+                <li>CMakeLists.txt 中更新源文件路径</li>
+              </ul>
+            </div>
+          </details>
+
+          <details>
+            <summary>Step 6: 更新 kernel_ops.h 为 umbrella header</summary>
+            <div class="details-body">
+              <div class="pill step">最终收尾</div>
+              <ul>
+                <li>将 include/layers/kernel_ops.h 内容替换为 #include 所有 kernels/*.h</li>
+                <li>删除已清空的 src/layers/kernel_ops.cu 和 src/layers/kernel_ops.cpp</li>
+                <li>删除 src/layers/attention.cu (已移动到 src/kernels/)</li>
+                <li>CMakeLists.txt 删除旧文件, 确认新文件全部在 CUDA_SOURCES 列表</li>
+                <li>最终验证: cmake --build build && ctest --test-dir build —— 10/10 通过</li>
+              </ul>
+            </div>
+          </details>
+        </section>
+
+        <!-- ======================================== 7. CMake 适配 ======================================== -->
+        <section class="section" id="cmake">
+          <h2>CMake 适配</h2>
+          <p>
+            CMakeLists.txt 需要把旧的 .cu 源文件替换为新的 kernels/ 下的源文件列表。
+          </p>
+
+          <details open>
+            <summary>CMake 变更对比</summary>
+            <div class="details-body">
+              <div class="code"># ---- 删除 ----
+src/layers/kernel_ops.cu
+src/layers/kernel_ops.cpp
+src/layers/attention.cu
+
+# ---- 新增 ----
+src/kernels/kernel_types.cu
+src/kernels/rms_norm.cu
+src/kernels/rotary.cu
+src/kernels/activation.cu
+src/kernels/bias_add.cu
+src/kernels/gather.cu
+src/kernels/embedding.cu
+src/kernels/sampling.cu
+src/kernels/kvcache.cu
+src/kernels/attention.cu
+src/kernels/split_qkv.cu</div>
+              <p style="margin-top: 10px;">
+                include 路径已覆盖 include/ 根目录，因此 #include "kernels/rms_norm.h" 可直接解析，无需额外 include_directories。
+              </p>
+            </div>
+          </details>
+
+          <details>
+            <summary>建议的 CUDA_SOURCES 变量</summary>
+            <div class="details-body">
+              <div class="code">set(KERNEL_SOURCES
+    src/kernels/kernel_types.cu
+    src/kernels/rms_norm.cu
+    src/kernels/rotary.cu
+    src/kernels/activation.cu
+    src/kernels/bias_add.cu
+    src/kernels/gather.cu
+    src/kernels/embedding.cu
+    src/kernels/sampling.cu
+    src/kernels/kvcache.cu
+    src/kernels/attention.cu
+    src/kernels/split_qkv.cu
+)
+
+set(LAYER_SOURCES
+    src/layers/activation.cpp
+    src/layers/attention.cpp
+    src/layers/embed_head.cpp
+    src/layers/layernorm.cpp
+    src/layers/linear.cpp
+    src/layers/rotary_embedding.cpp
+    src/layers/sampler.cpp
+)</div>
+              <p style="margin-top: 10px;">
+                将 CUDA kernel 源文件和 C++ Module 源文件分开管理，便于后续为 kernel 设置不同的编译选项
+                (如 -maxrregcount、-use_fast_math 等)。
+              </p>
+            </div>
+          </details>
+        </section>
+
+        <!-- ======================================== 8. 测试策略 ======================================== -->
+        <section class="section" id="tests">
+          <h2>测试策略</h2>
+          <p>
+            重构过程中不改变任何公共 API 签名，因此现有的 10 个测试用例无需修改。
+            以下策略确保重构不引入回归:
+          </p>
+          <div class="grid two">
+            <div class="card">
+              <strong>每步验证</strong>
+              <ul>
+                <li>每拆出一个 kernel 文件后立即 cmake --build + ctest</li>
+                <li>10/10 测试全部通过才进入下一步</li>
+                <li>如果 link error，检查 CMakeLists.txt 是否遗漏新 .cu 文件</li>
+                <li>如果 undefined reference，检查 namespace 和函数签名是否一致</li>
+              </ul>
+            </div>
+            <div class="card">
+              <strong>端到端验证</strong>
+              <ul>
+                <li>最终完成后运行 bench_e2e 确认 decode 吞吐 ≥ 85 tok/s</li>
+                <li>运行 example.cpp 确认聊天输出正常</li>
+                <li>对比 Python 输出确认 token-for-token 一致</li>
+                <li>增量编译时间应明显减少 (修改单个 kernel 只重编那个 .cu)</li>
+              </ul>
+            </div>
+          </div>
+
+          <details>
+            <summary>相关测试文件</summary>
+            <div class="details-body">
+              <table>
+                <thead>
+                  <tr>
+                    <th>测试文件</th>
+                    <th>覆盖范围</th>
+                    <th>与 kernels/ 的关系</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>tests/test_tensor.cpp</td>
+                    <td>Tensor 运行时 + 基础 kernel</td>
+                    <td>间接依赖 kernels/ (通过 layers/kernel_ops.h umbrella)</td>
+                  </tr>
+                  <tr>
+                    <td>tests/test_layers.cpp</td>
+                    <td>Context + Attention + Linear + Embedding + Sampler</td>
+                    <td>通过 Module wrapper 间接调用 kernels/</td>
+                  </tr>
+                  <tr>
+                    <td>tests/test_models.cpp</td>
+                    <td>Qwen3 模型端到端推理</td>
+                    <td>全链路依赖</td>
+                  </tr>
+                  <tr>
+                    <td>bench/bench_e2e.cpp</td>
+                    <td>5-prompt decode 吞吐基准</td>
+                    <td>全链路依赖</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </details>
+        </section>
+
+        <!-- ======================================== 9. 风险与约束 ======================================== -->
+        <section class="section" id="risks">
+          <h2>风险与约束</h2>
+          <div class="grid two">
+            <div class="card">
+              <strong>低风险</strong>
+              <ul>
+                <li>公共 API 签名不变，所有上游代码零改动</li>
+                <li>kernel_ops.h umbrella header 保持向后兼容</li>
+                <li>每步可独立验证，回退只需 git checkout</li>
+              </ul>
+            </div>
+            <div class="card">
+              <strong>需要注意</strong>
+              <ul>
+                <li>static 函数 / 匿名 namespace 内的辅助函数可能在多个 kernel 间共用，拆分时需确认依赖关系</li>
+                <li>kernel_ops.cu 内的 #include 顺序和 CUDA header 依赖需要在每个新 .cu 中正确复制</li>
+                <li>编译顺序: kernel_types.cu 必须先编译 (提供 validation 符号)</li>
+                <li>attention.cu 中如果有对 kernel_ops.cu 内辅助函数的内部调用，需改为 #include "kernels/kernel_types.h"</li>
+              </ul>
+            </div>
+          </div>
+
+          <details>
+            <summary>不在本次重构范围内的事项</summary>
+            <div class="details-body">
+              <ul>
+                <li>不引入 bf16 dtype 支持 (这是独立的优化项)</li>
+                <li>不替换 Attention 实现为 FlashAttention (需要确认第三方库集成)</li>
+                <li>不改变 Module wrapper 的接口或行为</li>
+                <li>不修改 tests/ 中的任何测试用例</li>
+                <li>不引入 kernel fusion 或新的优化策略</li>
+              </ul>
+            </div>
+          </details>
+        </section>
+
+      </main>
+    </div>
+
+    <div class="footer">
+      本方案的核心原则: 纯文件组织重构，不改变运行时行为，每步可验证可回退。完成后 kernel_ops.cu 的 1547 行将分散到 11 个独立 .cu 文件中，
+      平均每个文件约 140 行，增量编译和代码导航体验大幅改善。
+      <br><br>
+      <a href="operators.html">← 算子层文档</a> &nbsp;|&nbsp;
+      <a href="tensor.html">Tensor 文档</a> &nbsp;|&nbsp;
+      <a href="scheduler.html">Scheduler 文档</a> &nbsp;|&nbsp;
+      <a href="qwen3_model.html">Qwen3 模型文档</a>
+    </div>
+  </div>
+</body>
+</html>

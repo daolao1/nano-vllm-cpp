@@ -1,0 +1,900 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Infra 面试题题库</title>
+<style>
+  :root {
+    --bg: #0d1117; --card: #161b22; --border: #30363d;
+    --text: #c9d1d9; --muted: #8b949e; --heading: #f0f6fc;
+    --accent: #58a6ff; --green: #3fb950; --orange: #d29922; --red: #f85149; --purple: #d2a8ff;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif; background:var(--bg); color:var(--text); line-height:1.7; padding:2rem; max-width:920px; margin:0 auto; }
+  h1 { color:var(--heading); font-size:1.8rem; border-bottom:1px solid var(--border); padding-bottom:.6rem; }
+  .sub { color:var(--muted); margin-bottom:2rem; font-size:.88rem; }
+  h2 { color:var(--heading); font-size:1.15rem; margin:2.2rem 0 .7rem; padding:.4rem .7rem; border-left:3px solid var(--accent); background:#111820; border-radius:0 6px 6px 0; }
+  .q { background:var(--card); border:1px solid var(--border); border-radius:8px; margin-bottom:.65rem; overflow:hidden; transition:border-color .2s; }
+  .q:hover { border-color:var(--accent); }
+  .qh { display:flex; align-items:center; gap:.5rem; padding:.65rem 1rem; cursor:pointer; user-select:none; }
+  .qh:hover { background:#1c2128; }
+  .qn { color:var(--muted); font-family:monospace; font-size:.8rem; min-width:1.8rem; }
+  .qt { flex:1; font-weight:500; color:var(--heading); font-size:.9rem; }
+  .tg { display:inline-block; font-size:.62rem; padding:.08rem .4rem; border-radius:10px; font-weight:600; text-transform:uppercase; }
+  .tg-llm { background:#1a2332; color:var(--accent); border:1px solid #1f3a5f; }
+  .tg-sys { background:#1f2d1a; color:var(--green); border:1px solid #2d4020; }
+  .tg-cpp { background:#2d2410; color:var(--orange); border:1px solid #4d3800; }
+  .tg-gpu { background:#2a1f36; color:var(--purple); border:1px solid #3d2e52; }
+  .arr { color:var(--muted); transition:transform .2s; font-size:.72rem; }
+  .q.open .arr { transform:rotate(90deg); }
+  .qb { display:none; padding:0 1rem .8rem; border-top:1px solid var(--border); }
+  .q.open .qb { display:block; }
+  .a { margin-top:.5rem; }
+  .al { color:var(--green); font-weight:600; font-size:.75rem; text-transform:uppercase; margin-bottom:.25rem; }
+  .a p { font-size:.87rem; margin:.25rem 0; }
+  .a strong { color:var(--heading); }
+  .a code { font-family:'SFMono-Regular',Consolas,monospace; background:#1a2030; padding:.1rem .3rem; border-radius:4px; font-size:.8rem; color:#e6edf3; }
+  .a pre { background:#0d1117; border:1px solid var(--border); border-radius:6px; padding:.6rem .8rem; margin:.4rem 0; overflow-x:auto; font-family:monospace; font-size:.78rem; line-height:1.5; }
+  .a ul { padding-left:1.2rem; margin:.25rem 0; }
+  .a li { font-size:.87rem; margin:.12rem 0; }
+  .a ol { padding-left:1.2rem; margin:.25rem 0; }
+  .fu { background:#111820; border-left:2px solid var(--orange); padding:.35rem .7rem; margin-top:.45rem; border-radius:0 4px 4px 0; font-size:.8rem; }
+  .fu::before { content:"深入追问 → "; color:var(--orange); font-weight:600; }
+  .scenario { color:var(--muted); font-size:.82rem; font-style:italic; margin-bottom:.4rem; padding:.3rem .5rem; background:#111418; border-radius:4px; }
+  .tg-math { background:#2d1a1a; color:var(--red); border:1px solid #5f1f1f; }
+  .formula { background:#0d1117; border:1px solid var(--border); border-radius:6px; padding:.5rem .8rem; margin:.4rem 0; font-family:monospace; font-size:.85rem; text-align:center; color:var(--heading); }
+  footer { margin-top:2.5rem; padding-top:.8rem; border-top:1px solid var(--border); color:var(--muted); font-size:.78rem; text-align:center; }
+</style>
+</head>
+<body>
+
+<h1>AI Infra 面试题题库</h1>
+<p class="sub">面试官身份：AI Infra 资深工程师。前 18 题围绕你实现的 LLM 推理引擎 Config 模块提问，后 16 题覆盖 Attention 与位置编码基础原理，共 34 题。</p>
+
+<!-- ==================== 板块一：领域认知 ==================== -->
+<h2>一、领域认知（确认你不只是写了代码，而是理解 LLM 推理引擎的领域知识）</h2>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">1</span>
+    <span class="qt">LLM 推理引擎的显存一般是怎么划分的？你做配置的时候怎么考虑显存这块？</span>
+    <span class="tg tg-gpu">GPU</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：考察对 GPU 显存布局的全局理解</div>
+    <div class="al">参考答案</div>
+    <p>LLM 推理引擎的显存主要分三块：</p>
+    <ul>
+      <li><strong>模型权重</strong>（固定占用）— 加载后不变，如 Qwen3-0.6B bf16 约 1.2GB</li>
+      <li><strong>中间激活</strong>（随 batch 变化）— prefill 大 batch 时临时占用可能很大</li>
+      <li><strong>KV Cache</strong>（动态增长）— 每个请求每生成一个 token 就增长一点，是最大的变量</li>
+    </ul>
+    <p>我在配置里加了一个显存利用率参数，默认 0.9，含义是引擎最多使用 90% 的显存来预分配 KV Cache pool。留 10% 余量给中间激活、CUDA context、driver 开销等。不设 100% 是因为：prefill 大 batch 时激活临时占用可能很大、cudaMalloc 存在碎片、同卡上可能还有其他进程。</p>
+    <div class="fu">这个比例是针对 KV Cache 的，还是全局显存预算？你怎么从这个比例算出能分配多少 KV Cache block？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">2</span>
+    <span class="qt">Transformer 模型的上下文长度受什么约束？你的配置模块怎么处理上下文长度这件事？</span>
+    <span class="tg tg-llm">LLM</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：区分模型能力上界 vs 运行时资源约束</div>
+    <div class="al">参考答案</div>
+    <p>上下文长度受两层约束：</p>
+    <p><strong>1. 模型层面</strong>：训练时位置编码（如 RoPE）预计算到一个上限，超过这个长度位置编码就失效了。这是模型的能力天花板。</p>
+    <p><strong>2. 硬件层面</strong>：KV Cache 占用与序列长度成正比。A100 80GB 能支撑 32K 上下文，消费显卡可能只能支撑 2K。</p>
+    <p>我的做法是分成两个配置：从模型 config.json 读出模型的位置编码上限（只读，不可改），用户另外指定运行时的上下文长度限制。启动时校验：如果用户设的值超过模型上限，自动截断并输出警告。这样同一个模型在不同硬件上可以用不同的上下文长度，模型文件不用改。</p>
+    <div class="fu">如果用户设的值超过模型上限，你是选择报错还是静默截断？为什么这样选择？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">3</span>
+    <span class="qt">说说你对多卡推理的理解吧。张量并行、数据并行、流水线并行，在推理场景下怎么选？</span>
+    <span class="tg tg-gpu">GPU</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：分布式推理基础认知</div>
+    <div class="al">参考答案</div>
+    <ul>
+      <li><strong>数据并行（DP）</strong>：每卡一份完整模型副本，不同卡处理不同请求。推理场景用得少——权重冗余太多，小模型一张卡就够，大模型一张卡放不下</li>
+      <li><strong>张量并行（TP）</strong>：一层的权重按维度切到多卡（如 attention heads 平分），每步需要 all_reduce。适合单机多卡、延迟敏感的场景</li>
+      <li><strong>流水线并行（PP）</strong>：不同层分到不同卡，按流水线传递。适合多机、吞吐优先的场景，但有 bubble 延迟</li>
+    </ul>
+    <p>推理引擎通常选 TP，因为推理时 batch 可以很小（甚至 1 条请求），DP 没意义；PP 有 bubble；TP 能降低单条请求的延迟。我的配置里有一个 TP size 参数，限制为 1-8（单机最多 8 卡），影响后续权重加载时的切分方式和 attention head 的分配。</p>
+    <div class="fu">TP 的 all_reduce 通信开销大概在什么量级？什么情况下 TP=4 反而比 TP=2 慢？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">4</span>
+    <span class="qt">推理引擎中 KV Cache 的内存管理一般怎么做？和传统的预分配方式有什么区别？</span>
+    <span class="tg tg-llm">LLM</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：PagedAttention 的理解</div>
+    <div class="al">参考答案</div>
+    <p>传统做法是为每个请求按最大序列长度预分配 KV Cache 连续内存——一个只需 100 token 的请求也占满 4K 或更高的空间，显存利用率通常只有 ~50%。</p>
+    <p>现在主流方案是 <strong>PagedAttention</strong>，借鉴操作系统虚拟内存分页：把 KV Cache 切成固定大小的 block（页），按需分配。请求实际用了多少 token 就分配多少 block，利用率可以达到 ~95%。</p>
+    <p>我的配置里有一个 block size 参数，表示每页存储多少个 token 的 KV。设大了分配粒度粗（尾部浪费多）但管理开销小；设小了粒度细但 block table 更大、调度更频繁。我把它限制为 2 的幂且不小于 16，方便对齐 GPU 访存。</p>
+    <div class="fu">block size 选大还是选小有什么 trade-off？主流推理引擎一般用多大？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">5</span>
+    <span class="qt">现在很多模型不再用标准的 Multi-Head Attention 了，你了解哪些变体？它们对推理引擎有什么影响？</span>
+    <span class="tg tg-llm">LLM</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：GQA/MQA 的理解，以及对 KV Cache 占用的量化分析</div>
+    <div class="al">参考答案</div>
+    <p>主要三种：</p>
+    <ul>
+      <li><strong>MHA（Multi-Head Attention）</strong>：Q/K/V head 数量相同。经典但 KV Cache 开销最大</li>
+      <li><strong>MQA（Multi-Query Attention）</strong>：所有 Q head 共享 1 组 KV。KV Cache 最小，但质量有损失</li>
+      <li><strong>GQA（Grouped Query Attention）</strong>：Q head 分组，每组共享 1 组 KV。是 MHA 和 MQA 的折中，目前最主流（LLaMA 2 70B、Qwen3 都用）</li>
+    </ul>
+    <p>对推理引擎的影响：KV Cache 大小直接取决于 KV head 数量。比如 GQA ratio = 2 时 KV Cache 就只有 MHA 的一半。配置模块需要分别读取 Q head 数和 KV head 数，这两个值不同直接影响 KV Cache pool 的大小计算和显存预算。</p>
+    <div class="fu">如果 KV head 只有 1 个，那就是 MQA 了——它有什么问题？为什么现在大家更倾向 GQA？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">6</span>
+    <span class="qt">推理引擎通常会做一些 GPU 执行层面的优化来降低 kernel launch 开销，你了解吗？配置模块需要为此做什么？</span>
+    <span class="tg tg-gpu">GPU</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：CUDA Graph 的工程理解</div>
+    <div class="al">参考答案</div>
+    <p>主要是 <strong>CUDA Graph</strong> — 把一系列 GPU kernel 录制成一张图，重放时跳过 CPU 端逐个 launch 的开销（每个 launch ~10-20μs）。decode 阶段 kernel 计算量小但数量多，Graph 能提速 10-30%。</p>
+    <p>但 Graph 有限制：录制时 tensor 地址必须固定、不支持动态控制流、调试困难（不能断点/print）、capture 多个 batch size 组合会额外占显存。</p>
+    <p>所以我在配置里加了一个开关参数，默认启用 Graph，但调试时可以强制关闭回到逐个 launch 的 eager 模式。这个参数对运行时完全透明——配置层只管传递开关，真正的 capture/replay 逻辑在执行器层。</p>
+    <div class="fu">CUDA Graph capture 的时候为什么 input tensor 地址必须固定？不固定会怎样？</div>
+  </div></div>
+</div>
+
+<!-- ==================== 板块二：工程设计 ==================== -->
+<h2>二、工程设计（C++ 能力和系统设计思维）</h2>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">7</span>
+    <span class="qt">你的配置模块需要解析 HuggingFace 模型目录里的 JSON 文件，解析第三方格式你怎么保证健壮性？</span>
+    <span class="tg tg-sys">工程</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：边界输入处理和防御性编程</div>
+    <div class="al">参考答案</div>
+    <p>我的策略是"必需字段严格、可选字段宽松"：</p>
+    <ul>
+      <li><strong>必需字段</strong>（如 hidden_size、num_layers）用严格取值，缺失立刻抛异常，错误信息明确指出哪个字段缺了</li>
+      <li><strong>可选字段</strong>（如 tie_word_embeddings）先检查存在性再用默认值。不同模型架构的 config.json 字段不完全一致</li>
+      <li><strong>类型校验</strong>：JSON 库自带类型检查，string 取成 int 直接抛异常</li>
+      <li><strong>语义校验</strong>：解析完再检查逻辑约束——block_size 必须是 2 的幂、hidden_size 能整除 head 数等</li>
+    </ul>
+    <p>HuggingFace 的 config.json 格式非常稳定，但每个新架构可能加新字段。"必需严格、新字段宽松"的策略很适合这个场景。</p>
+    <div class="fu">如果 HuggingFace 以后把某个字段改名了（比如 T5 的 d_model vs 普通模型的 hidden_size），你怎么兼容？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">8</span>
+    <span class="qt">配置模块在整个推理引擎架构中是什么角色？它和调度器、模型执行器这些模块怎么交互？</span>
+    <span class="tg tg-sys">工程</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：全局架构感知和生命周期管理</div>
+    <div class="al">参考答案</div>
+    <p>Config 是整个引擎<strong>最先创建、全程只读</strong>的对象：</p>
+<pre>程序启动
+  → 解析配置（第一步）
+  → 调度器拿到配置 → 确定 batch 策略、队列上限
+  → 模型执行器拿到配置 → 确定显存分配、模型结构
+  → 引擎主类组装所有组件
+  → 推理循环……
+  → 程序退出</pre>
+    <p>交互方式：const 引用传递。Config 创建后不会被修改，所有下游模块只读使用。唯一的例外是 KV Cache block 数量——这个值需要模型加载后才能计算出来（要知道模型权重占了多少显存才能算剩余空间），所以在配置里是延迟填充的。</p>
+    <div class="fu">这种"大部分字段创建时确定，个别字段延迟填充"的设计你觉得好吗？有什么更好的方案？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">9</span>
+    <span class="qt">C++ 项目中做 JSON 解析，有不少库可以选，你是怎么考虑选型的？</span>
+    <span class="tg tg-cpp">C++</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：技术选型的思考过程和 trade-off 分析</div>
+    <div class="al">参考答案</div>
+    <p>主流三个库定位不同：</p>
+    <ul>
+      <li><strong>nlohmann/json</strong>：API 最直觉（像 Python dict），header-only 零配置，STL 兼容好。但解析速度最慢、编译时间长</li>
+      <li><strong>rapidjson</strong>：性能好 5-10 倍，header-only，DOM 和 SAX 两种模式。但 API 繁琐（手动 HasMember/GetInt）</li>
+      <li><strong>simdjson</strong>：SIMD 加速，单核 GB/s 级解析速度。但只读、需要编译库</li>
+    </ul>
+    <p>我选了 nlohmann/json，原因：Config 解析是启动时一次性操作，config.json 只有 ~30 行，性能完全不是瓶颈。开发效率远大于运行效率。如果场景是解析 GB 级日志或 streaming JSON，那 simdjson 或 rapidjson 才有意义。</p>
+    <div class="fu">header-only 库如果很多 .cpp 都 include 了它，编译时间会怎样？你怎么控制？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">10</span>
+    <span class="qt">配置模块的单元测试怎么做的？你觉得测试覆盖得够不够？</span>
+    <span class="tg tg-sys">工程</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：测试思维和自我评估</div>
+    <div class="al">参考答案</div>
+    <p>用 GTest 框架，测了三类场景：</p>
+    <p><strong>1. 正常路径</strong>：拿一个真实的模型目录解析，逐字段精确断言值是否正确</p>
+    <p><strong>2. 边界值和自动修正</strong>：</p>
+    <ul>
+      <li>用户把上下文长度设得比模型上限大 → 验证被截断</li>
+      <li>prefill token 预算小于上下文长度 → 验证被自动提升</li>
+    </ul>
+    <p><strong>3. 异常路径</strong>：</p>
+    <ul>
+      <li>模型目录不存在 / 配置文件不存在 → 验证抛异常</li>
+      <li>非法参数值（block_size、TP size 越界）→ 验证抛异常</li>
+    </ul>
+    <p>不够的地方：测试依赖本地的模型文件路径，CI 跑不了。应该用测试 fixture（自己写一个最小 JSON），脱离真实模型。另外畸形 JSON 内容（缺字段、类型错误、空文件）目前没专门覆盖。</p>
+    <div class="fu">测试依赖真实模型文件是个常见坑，CI 环境下你打算怎么解决？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">11</span>
+    <span class="qt">你的配置里既有模型结构信息（层数、维度这些），也有运行时可调参数（并发数、显存比例），你怎么组织这些数据？</span>
+    <span class="tg tg-sys">工程</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：数据建模能力，分层设计</div>
+    <div class="al">参考答案</div>
+    <p>我把它们分成两个 struct：</p>
+    <ul>
+      <li><strong>模型配置</strong>（来自 config.json）：hidden_size、num_layers、num_heads、vocab_size 等。这些是模型训练者定义的固有属性，用户不应改也不能改。同一个模型在任何机器上这些值都一样</li>
+      <li><strong>引擎配置</strong>（来自用户/运维）：上下文长度、batch 上限、显存比例、TP size 等。这些根据硬件和业务需求调整</li>
+    </ul>
+    <p>引擎配置内部包含模型配置作为成员。好处是职责清晰：拿到引擎配置就能访问一切，但模型配置是只读子结构，改不了。</p>
+    <p>如果混在一起：分不清哪些能改哪些不能。类比 K8s 里 spec 和 status 分开——混在一起就乱了。</p>
+    <div class="fu">如果配置参数以后越来越多，比如加上量化参数、投机解码参数，你这个结构怎么扩展？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">12</span>
+    <span class="qt">配置模块的职责边界在哪？它只管解析配置，还是也做别的事情？</span>
+    <span class="tg tg-sys">工程</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：单一职责原则的实践理解</div>
+    <div class="al">参考答案</div>
+    <p>Config 模块只负责<strong>解析配置文件 + 校验参数 + 推导衍生值</strong>。不做任何资源加载：</p>
+    <ul>
+      <li><strong>做的</strong>：读 JSON → 填 struct → 校验合法性 → 推导衍生值（如 head_dim = hidden_size / num_heads）</li>
+      <li><strong>不做的</strong>：加载模型权重、初始化 tokenizer、分配 GPU 显存、创建 CUDA context</li>
+    </ul>
+    <p>设计原则：Config 是纯 CPU、无 GPU 依赖、无副作用的模块（唯一 I/O 是读一个小 JSON）。好处是可以独立编译、独立测试、不需要 GPU 环境。如果把权重加载也塞进来，测试就需要整个 GPU 环境，变成了集成测试。</p>
+    <div class="fu">如果后面加一个需求：启动时自动检测 GPU 型号和显存大小来设默认值，你还觉得它应该"无 GPU 依赖"吗？怎么处理这个矛盾？</div>
+  </div></div>
+</div>
+
+<!-- ==================== 板块三：实战与扩展 ==================== -->
+<h2>三、实战与扩展（开放题，考察经验广度和思考深度）</h2>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">13</span>
+    <span class="qt">如果要支持不同精度的推理——FP16、BF16、INT8 甚至 FP8——配置层需要怎么考虑？</span>
+    <span class="tg tg-llm">LLM</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：量化/混合精度推理的认知和配置扩展能力</div>
+    <div class="al">参考答案</div>
+    <p>模型 config.json 里有训练时的精度，但推理精度不一定跟它一样。需要加：</p>
+    <ul>
+      <li><strong>推理精度</strong>：一个 dtype 字段，"auto" 表示跟训练精度一致，也可以手动指定</li>
+      <li><strong>量化配置</strong>：INT8/INT4 推理需要量化方法（AWQ / GPTQ / SmoothQuant）、量化位数、group size 等</li>
+      <li><strong>KV Cache 精度</strong>：KV Cache 可以独立做 FP8/INT8 压缩，和权重精度是独立的两个维度</li>
+    </ul>
+    <p>BF16 vs FP16：BF16 指数位同 FP32，范围大不易溢出，适合 attention logits；FP16 精度高但范围小。Ampere+ 硬件两者 Tensor Core 性能一样。精度选择直接影响显存预算——INT8 权重比 FP16 小一倍，能省出空间给更大 KV Cache pool。</p>
+    <div class="fu">INT8 量化的 KV Cache 对推理质量影响大吗？什么场景下值得做？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">14</span>
+    <span class="qt">假设这个引擎要上线提供 API 服务，你觉得配置还需要增加哪些东西？</span>
+    <span class="tg tg-sys">工程</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：从"能跑"到"能上线"的差距认知</div>
+    <div class="al">参考答案</div>
+    <p>当前配置够离线推理和 benchmark，上线还缺：</p>
+    <p><strong>服务层</strong>：host/port（监听地址）、最大并发请求数（超过返回 429）、单请求超时时间</p>
+    <p><strong>调度层</strong>：调度策略（FCFS / 优先级 / 公平调度）、waiting 队列 token 上限、抢占策略（swap 到 CPU 还是直接 kill）</p>
+    <p><strong>可观测性</strong>：Prometheus metrics 端口、日志级别、请求 tracing</p>
+    <p><strong>安全</strong>：API key 鉴权、最大输入 token 数（防恶意超长输入）、rate limiting</p>
+    <p><strong>部署</strong>：模型路径（支持远程路径如 S3/OSS）、健康检查端点</p>
+    <div class="fu">这些参数的来源可能有多个——配置文件、环境变量、命令行——优先级你怎么设计？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">15</span>
+    <span class="qt">HuggingFace 生态里模型权重有不同的存储格式，你了解它们的区别吗？</span>
+    <span class="tg tg-sys">工程</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：模型文件格式的工程认知</div>
+    <div class="al">参考答案</div>
+    <p>主要两种：</p>
+    <ul>
+      <li><strong>.safetensors</strong>（新格式）：header 有完整 tensor 元信息（name、dtype、shape、offset），支持 mmap 延迟加载，安全（无代码执行风险）</li>
+      <li><strong>pytorch_model*.bin</strong>（旧格式）：pickle 序列化，加载时可能执行任意代码（安全隐患），C++ 原生解析极其麻烦</li>
+    </ul>
+    <p>优先 safetensors 的理由：安全 + mmap + C++ 原生解析容易。配置模块本身不加载权重，但可以加一个权重格式偏好字段，或 auto 模式下自动检测目录里有什么文件。</p>
+    <div class="fu">safetensors 的 mmap 加载相比 read 有什么好处？什么情况下 mmap 反而不好？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">16</span>
+    <span class="qt">如果要支持多种模型架构——不只一种——你的配置模块怎么兼容？</span>
+    <span class="tg tg-sys">工程</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：扩展性设计思维</div>
+    <div class="al">参考答案</div>
+    <p>好消息是大部分 Transformer 解码器模型的 config.json 字段高度重叠：hidden_size、num_heads、num_layers、vocab_size 几乎通用。差异在于：</p>
+    <ul>
+      <li><strong>激活函数</strong>：SiLU（SwiGLU）vs GELU</li>
+      <li><strong>归一化</strong>：RMSNorm vs LayerNorm</li>
+      <li><strong>位置编码</strong>：RoPE（theta 不同）vs ALiBi vs 绝对位置</li>
+      <li><strong>特殊结构</strong>：QK-Norm、Sliding Window Attention 等</li>
+    </ul>
+    <p>配置层策略：一个通用 struct + 可选字段。config.json 里有 model_type 字段，读出来作为模型注册的 key。配置不需要继承体系——struct 加几个 optional 字段。复杂度在 Model 层（工厂模式根据 model_type 创建不同实现），不在 Config 层。</p>
+    <div class="fu">如果一个全新架构加了你完全没见过的字段（比如 Mamba 的状态空间维度），你的解析不认识它——怎么办？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">17</span>
+    <span class="qt">做推理引擎和做训练框架，在配置设计上有什么本质区别？</span>
+    <span class="tg tg-llm">LLM</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：训练 vs 推理的认知广度</div>
+    <div class="al">参考答案</div>
+    <p><strong>训练配置关注</strong>：学习率/optimizer/scheduler、梯度累积步数、混合精度策略（loss scaling）、数据集路径、checkpoint 保存策略、DP+TP+PP+ZeRO 的复杂并行组合</p>
+    <p><strong>推理配置关注</strong>：显存分配策略（KV Cache 预算）、批处理参数（最大并发数、prefill token 预算）、延迟优化开关（CUDA Graph、投机解码）、量化配置</p>
+    <p>本质区别：训练追求吞吐和收敛，配置围绕计算和通信；推理追求延迟和并发，配置围绕内存和调度。训练的显存瓶颈在激活和梯度（activation checkpointing 换空间），推理的显存瓶颈在 KV Cache（分页换利用率）。</p>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">18</span>
+    <span class="qt">最后问一个开放题：回顾你实现的这个配置模块，你觉得有什么不足？如果重新做一遍会改什么？</span>
+    <span class="tg tg-sys">工程</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：自省能力和工程成熟度</div>
+    <div class="al">参考答案</div>
+    <p>可以坦诚反思的点：</p>
+    <ul>
+      <li><strong>参数来源单一</strong> — 只支持 JSON 文件，实际应该支持环境变量覆盖（方便容器化部署）和命令行参数</li>
+      <li><strong>缺少日志</strong> — 自动修正参数时（如截断上下文长度）没有 warning 日志，用户可能不知道值被改了</li>
+      <li><strong>延迟初始化不够优雅</strong> — 有个字段初始值是 -1 表示"还没算"，应该用 std::optional 更类型安全</li>
+      <li><strong>测试依赖真实模型目录</strong> — CI 跑不了，应该用 fixture JSON 或 mock</li>
+      <li><strong>没有版本兼容机制</strong> — 如果以后配置格式变了，没有 schema version 来做向前兼容</li>
+      <li><strong>缺少 dump 功能</strong> — 上线后排查问题需要看当前生效的完整配置，应该能序列化回 JSON</li>
+    </ul>
+    <p>关键是说出不足的同时给出改进方案，而不是只说"挺好的没问题"。面试官看的是你有没有踩过坑、有没有真正思考过工程质量。</p>
+  </div></div>
+</div>
+
+<!-- ==================== 板块四：Attention 机制 ==================== -->
+<h2>四、Attention 机制（基础原理）</h2>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">19</span>
+    <span class="qt">从头到尾描述一下 Self-Attention 的完整计算流程。</span>
+    <span class="tg tg-llm">LLM</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：确认候选人不是只知道"Q K V"三个字母，而是理解完整的数据流</div>
+    <div class="al">参考答案</div>
+    <p>给定输入 <code>X</code>（shape: [seq_len, hidden_size]），完整流程：</p>
+    <ol>
+      <li><strong>线性投影</strong>：Q = X·W_q，K = X·W_k，V = X·W_v。三个投影矩阵 shape 均为 [hidden_size, hidden_size]</li>
+      <li><strong>分头（Reshape）</strong>：将 Q/K/V 从 [seq_len, hidden_size] reshape 为 [num_heads, seq_len, head_dim]</li>
+      <li><strong>缩放点积</strong>：scores = Q · K^T / √d_k，shape: [num_heads, seq_len, seq_len]</li>
+      <li><strong>Mask（可选）</strong>：causal mask 把上三角设为 -∞，防止看到未来 token</li>
+      <li><strong>Softmax</strong>：对最后一个维度做 softmax，得到注意力权重（每行加和为 1）</li>
+      <li><strong>加权求和</strong>：output = softmax(scores) · V，shape: [num_heads, seq_len, head_dim]</li>
+      <li><strong>合并头（Concat）</strong>：reshape 回 [seq_len, hidden_size]</li>
+      <li><strong>输出投影</strong>：output = output · W_o，最终 shape: [seq_len, hidden_size]</li>
+    </ol>
+    <div class="fu">第 3 步的 Q·K^T 的时间和空间复杂度分别是多少？这个 O(n²) 对长序列有什么影响？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">20</span>
+    <span class="qt">Attention 计算中为什么要除以 √d_k？不除会怎样？</span>
+    <span class="tg tg-math">数学</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：考察对数值稳定性的数学理解</div>
+    <div class="al">参考答案</div>
+    <p>假设 Q 和 K 的每个元素独立、均值 0、方差 1，那么 Q·K^T 中每个元素是 d_k 个乘积的求和：</p>
+    <div class="formula">q · k = Σ(q_i · k_i)，其中每个 q_i·k_i 的方差 = 1，求和后方差 = d_k</div>
+    <p>即 <strong>点积结果的方差随 d_k 线性增长</strong>。d_k = 128 时，点积值的标准差约 11.3。</p>
+    <p>不除的后果：</p>
+    <ul>
+      <li><strong>softmax 饱和</strong>：输入值很大时，softmax 输出趋近 one-hot（一个接近 1，其余接近 0）</li>
+      <li><strong>梯度消失</strong>：softmax 在饱和区的梯度接近 0，反向传播梯度几乎不流动</li>
+      <li><strong>FP16 溢出</strong>：FP16 最大值 65504，大点积可能直接变 inf</li>
+    </ul>
+    <p>除以 √d_k 后，方差归一到 1，softmax 工作在合理区间，梯度正常传播。</p>
+    <div class="fu">如果用 BF16 推理，softmax 的数值稳定性还有什么额外需要注意的？（提示：BF16 尾数只有 7 位）</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">21</span>
+    <span class="qt">Multi-Head Attention 的"多头"到底有什么用？为什么不用一个大 head？</span>
+    <span class="tg tg-llm">LLM</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：理解多子空间建模的直觉和工程意义</div>
+    <div class="al">参考答案</div>
+    <p><strong>理论角度</strong>：</p>
+    <ul>
+      <li>每个 head 在独立的低维子空间中学习不同的注意力模式——有的 head 学句法（主语关注谓语），有的学指代（代词关注先行词），有的学局部上下文</li>
+      <li>一个大 head 会把所有模式混在一起，softmax 只能输出一个注意力分布，无法同时关注多个不同位置的不同语义</li>
+    </ul>
+    <p><strong>工程角度</strong>：</p>
+    <ul>
+      <li>多 head 的 Q·K^T 矩阵更小（[seq, head_dim] 而非 [seq, hidden_size]），计算效率更高</li>
+      <li>多 head 天然适合 GPU 并行——每个 head 独立计算，可以并行在不同 CUDA thread block 上</li>
+      <li>张量并行（TP）时按 head 切分——正好一组完整的 head 分到一张卡</li>
+    </ul>
+    <p><strong>数值直觉</strong>：hidden_size=1024，num_heads=16 → 每个 head 处理 64 维。16 个 64 维的注意力模式比 1 个 1024 维的更灵活。</p>
+    <div class="fu">实验发现训练好的模型里很多 head 的注意力分布几乎一样（冗余 head），你怎么看？这对推理有什么启示？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">22</span>
+    <span class="qt">MHA、MQA、GQA 三种注意力变体的原理和区别是什么？在推理引擎里它们各自的影响？</span>
+    <span class="tg tg-llm">LLM</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：GQA 是当前主流配置，必须能清晰区分三者</div>
+    <div class="al">参考答案</div>
+    <p>三者的核心区别在于 <strong>KV head 的数量</strong>：</p>
+    <ul>
+      <li><strong>MHA</strong>：num_kv_heads = num_q_heads。每个 Q head 有独立的 KV head。KV Cache 最大</li>
+      <li><strong>MQA</strong>：num_kv_heads = 1。所有 Q head 共享同一组 KV。KV Cache 最小，但表达能力受限</li>
+      <li><strong>GQA</strong>：1 &lt; num_kv_heads &lt; num_q_heads。Q head 分组，每组共享一组 KV。折中方案</li>
+    </ul>
+    <p><strong>KV Cache 对比</strong>（以 32 层、hidden_size=4096、head_dim=128、BF16、seq_len=4K 为例）：</p>
+<pre>每 token 每层 KV Cache = 2 × num_kv_heads × head_dim × 2 bytes
+
+MHA (32 kv_heads): 2 × 32 × 128 × 2 = 16,384 bytes
+GQA (8 kv_heads):  2 ×  8 × 128 × 2 =  4,096 bytes  ← 4倍节省
+MQA (1 kv_head):   2 ×  1 × 128 × 2 =    512 bytes  ← 32倍节省</pre>
+    <p>GQA 成为主流（LLaMA2-70B、Qwen3、Mistral），因为 MQA 虽然更省但质量下降明显（KV 信息瓶颈），GQA 在显存和质量之间取得了最佳平衡。</p>
+    <div class="fu">GQA 推理时 K/V 需要 broadcast/repeat 到和 Q 同样的 head 数，这个操作在 GPU 上怎么高效实现？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">23</span>
+    <span class="qt">Causal Mask 是什么？为什么 decoder-only 模型一定需要它？</span>
+    <span class="tg tg-llm">LLM</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：理解自回归生成的基础约束</div>
+    <div class="al">参考答案</div>
+    <p>Causal Mask 是一个<strong>下三角矩阵</strong>，上三角部分填 -∞（softmax 后变为 0）。效果：位置 i 只能 attend 到位置 ≤ i 的 token。</p>
+<pre>token:  [A, B, C, D]
+
+Mask:   A  B  C  D
+    A [ 0 -∞ -∞ -∞ ]
+    B [ 0  0 -∞ -∞ ]
+    C [ 0  0  0 -∞ ]
+    D [ 0  0  0  0 ]</pre>
+    <p><strong>为什么必须有</strong>：</p>
+    <ul>
+      <li>训练时，一个序列的所有位置<strong>并行</strong>计算。如果不 mask，位置 2 的 token 在训练时能看到位置 3、4 的 token → 训练和推理不一致（推理时生成位置 2 时位置 3 还不存在）</li>
+      <li>有了 causal mask，训练中每个位置只看到"过去"→ 和推理时的自回归行为一致</li>
+    </ul>
+    <p><strong>推理时的工程影响</strong>：</p>
+    <ul>
+      <li><strong>Prefill 阶段</strong>：需要完整 causal mask（是一个 [seq_len, seq_len] 的矩阵）</li>
+      <li><strong>Decode 阶段</strong>：每次只新增 1 行，且自然看不到未来（因为未来还没生成），所以 mask 退化为"无需 mask"——Flash Attention 的 causal 模式会自动处理</li>
+    </ul>
+    <div class="fu">Encoder-Decoder 模型（如 T5）的 attention mask 和 decoder-only 有什么不同？Cross Attention 的 mask 是怎样的？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">24</span>
+    <span class="qt">说说 Flash Attention 的核心思想，它解决了什么问题？</span>
+    <span class="tg tg-gpu">GPU</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：理解 IO-aware 算法设计思想</div>
+    <div class="al">参考答案</div>
+    <p><strong>问题</strong>：标准 Attention 计算 Q·K^T 产生一个 [seq_len, seq_len] 的矩阵，seq_len=4K 时要 64MB 显存（FP16），32K 时要 4GB。这个中间矩阵必须存到 HBM（高带宽显存），大量 HBM 读写成为瓶颈。</p>
+    <p><strong>Flash Attention 的核心</strong>：<strong>分块（Tiling）+ Online Softmax</strong></p>
+    <ol>
+      <li><strong>分块</strong>：不一次算整个 [seq, seq] 矩阵，而是把 Q 分成小块（fit in SRAM/Shared Memory，~192KB），每次只算一块 Q 和全部 K 的注意力</li>
+      <li><strong>Online Softmax</strong>：softmax 通常需要整行的全局 max 和 sum。Flash Attention 用 online 算法，流式更新 max 和 sum，不需要完整存储中间矩阵</li>
+      <li><strong>不 materialize 中间矩阵</strong>：scores 矩阵在 SRAM 中计算、softmax、和 V 相乘后直接丢弃，不写回 HBM</li>
+    </ol>
+    <p><strong>效果</strong>：</p>
+    <ul>
+      <li>显存从 O(n²) 降到 O(n)——不需要存 [seq, seq] 矩阵</li>
+      <li>速度提升 2-4x——减少了大量 HBM 读写（GPU 计算快，IO 慢）</li>
+      <li>支持更长序列——显存不再是瓶颈</li>
+    </ul>
+    <div class="fu">Flash Attention 的反向传播怎么做？不存中间矩阵的话，梯度怎么算？（提示：recomputation）</div>
+  </div></div>
+</div>
+
+<!-- ==================== 板块五：位置编码 ==================== -->
+<h2>五、位置编码（基础原理）</h2>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">25</span>
+    <span class="qt">Transformer 为什么需要位置编码？不加会怎样？</span>
+    <span class="tg tg-llm">LLM</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：理解 Transformer 的置换不变性（permutation invariance）</div>
+    <div class="al">参考答案</div>
+    <p>Self-Attention 的计算对输入序列的<strong>顺序完全不敏感</strong>——把 token 打乱后，每个 token 的 attention 权重和输出完全一样（只是行列重排了）。这称为<strong>置换不变性（permutation invariance）</strong>。</p>
+    <p>数学证明：对任意置换矩阵 P，Attention(PX) = P · Attention(X)。注意力结果只取决于 token 之间的"相似度"，和它们在序列中的位置无关。</p>
+    <p>不加位置编码的后果：</p>
+    <ul>
+      <li>"猫吃鱼" 和 "鱼吃猫" 对模型完全等价——无法区分语序</li>
+      <li>模型退化为一个无序的 token 集合处理器（bag of tokens）</li>
+      <li>对于需要理解顺序的任务（语言生成、翻译、代码）完全失效</li>
+    </ul>
+    <p>位置编码的作用：给每个 token 注入其在序列中的位置信息，打破置换不变性。</p>
+    <div class="fu">RNN/LSTM 为什么不需要显式位置编码？它们的位置信息是怎么编码的？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">26</span>
+    <span class="qt">说说原始 Transformer 的正弦位置编码的数学原理，它为什么能编码位置？</span>
+    <span class="tg tg-math">数学</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：数学推导能力，频率分解思想</div>
+    <div class="al">参考答案</div>
+    <p>原始公式（位置 pos，维度 i）：</p>
+<pre>PE(pos, 2i)   = sin(pos / 10000^(2i/d))
+PE(pos, 2i+1) = cos(pos / 10000^(2i/d))</pre>
+    <p><strong>数学直觉</strong>：把每个位置编码为不同频率的正弦波的叠加——低维对应高频（变化快，区分相邻位置），高维对应低频（变化慢，编码全局位置）。</p>
+    <p><strong>关键性质 —— 平移不变性</strong>：</p>
+    <p>对于固定偏移 k，存在一个线性变换 T_k 使得 PE(pos+k) = T_k · PE(pos)。这意味着模型可以通过学习 T_k 来捕捉"相对距离为 k"这个概念，不需要为每个具体位置单独学习。</p>
+    <p>证明核心：sin(α+β) = sinα·cosβ + cosα·sinβ，所以 PE(pos+k) 可以表示为 PE(pos) 的线性组合，系数只取决于 k。</p>
+    <p><strong>10000 这个 base</strong>：让最高频维度的波长 = 2π（≈6.28 个位置一个周期），最低频维度的波长 = 10000·2π（≈62832 个位置一周期）。覆盖了从短距离到长距离的范围。</p>
+    <div class="fu">正弦位置编码是固定的（不可学习），那可学习的位置编码（learned PE）和它比有什么优缺点？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">27</span>
+    <span class="qt">RoPE（旋转位置编码）的完整原理是什么？为什么现在大多数 LLM 都用它？</span>
+    <span class="tg tg-math">数学</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：RoPE 是当前 LLM 标配，必须能清晰推导</div>
+    <div class="al">参考答案</div>
+    <p><strong>核心思想</strong>：对 Q 和 K 向量施加一个与位置相关的旋转，使得 Q·K^T 的结果只取决于<strong>相对位置</strong>。</p>
+    <p><strong>推导过程</strong>：</p>
+    <p>1. 把 head_dim 维向量的每两个相邻维度看作一个 2D 复数平面</p>
+    <p>2. 位置 m 处，第 i 对维度旋转角度 θ = m · ω_i，其中频率 ω_i = 1 / (base^(2i/d))</p>
+    <p>3. 用旋转矩阵表示：</p>
+<pre>R(m, i) = [cos(m·ω_i)  -sin(m·ω_i)]
+           [sin(m·ω_i)   cos(m·ω_i)]</pre>
+    <p>4. Q' = R(m) · Q，K' = R(n) · K</p>
+    <p>5. 关键性质：Q'^T · K' = Q^T · R(m)^T · R(n) · K = Q^T · R(n-m) · K</p>
+    <p>旋转矩阵是正交的，R(m)^T · R(n) = R(n-m)，所以<strong>点积只依赖相对位置 n-m</strong>。</p>
+    <p><strong>为什么 RoPE 成为标配</strong>：</p>
+    <ul>
+      <li>天然编码相对位置（不需要额外参数）</li>
+      <li>可以推广到训练时没见过的长度（配合 θ 调整）</li>
+      <li>计算开销极小——每个 token 的 Q/K 只需做一次逐元素的 sin/cos 乘法</li>
+      <li>和 Flash Attention 等优化完全兼容</li>
+    </ul>
+    <div class="fu">RoPE 的 base（theta）对上下文长度有什么影响？为什么 LLaMA 用 10000 而 Qwen3 用 1000000？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">28</span>
+    <span class="qt">RoPE 的 base（theta）值大小对模型有什么影响？长上下文模型是怎么扩展的？</span>
+    <span class="tg tg-llm">LLM</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：理解 RoPE 外推 / NTK scaling 的工程意义</div>
+    <div class="al">参考答案</div>
+    <p>频率公式：ω_i = 1 / (theta^(2i/d))</p>
+    <p><strong>theta 的影响</strong>：</p>
+    <ul>
+      <li>theta 越大 → 所有 ω_i 越小 → 旋转越慢 → 相邻位置的角度差越小</li>
+      <li>好处：高维度在更长的序列范围内仍有变化 → 支持更长上下文</li>
+      <li>代价：区分相邻位置的能力降低（角度差太小时难以区分 token 502 和 503）</li>
+    </ul>
+    <p><strong>长上下文扩展方法</strong>：</p>
+    <ul>
+      <li><strong>直接提高 theta</strong>（如 10000 → 1000000）：最简单，但可能需要 fine-tune 适配</li>
+      <li><strong>NTK-aware scaling</strong>：非均匀调整——低频维度（编码长距离的）放大更多，高频维度（编码短距离的）保持不变。类比：调望远镜的焦距但不影响近景清晰度</li>
+      <li><strong>YaRN</strong>：在 NTK 基础上加 attention scaling factor，进一步减少外推时的 perplexity 退化</li>
+      <li><strong>Linear scaling</strong>：所有 ω 除以比例因子。最简单但质量最差——高频信息被压缩</li>
+    </ul>
+    <p><strong>数值直觉</strong>：theta=10000 时，head_dim=128 最高维度的半周期约 5000 个 token。theta=1000000 时，约 500000 个 token。</p>
+    <div class="fu">如果模型训练时用 theta=10000、max_len=4K，推理时直接用 32K 不做任何调整，效果会怎样？perplexity 曲线是什么形状？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">29</span>
+    <span class="qt">除了 RoPE，还有哪些位置编码方案？各自的优缺点？</span>
+    <span class="tg tg-llm">LLM</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：考察技术视野的广度</div>
+    <div class="al">参考答案</div>
+    <p><strong>1. 绝对位置编码</strong>：</p>
+    <ul>
+      <li><strong>Sinusoidal PE</strong>（原始 Transformer）：固定公式生成，无额外参数。但不编码相对位置</li>
+      <li><strong>Learned PE</strong>（GPT-2/BERT）：可学习的 embedding lookup table。简单有效，但长度外推差——训练 512 token 就无法处理 513</li>
+    </ul>
+    <p><strong>2. 相对位置编码</strong>：</p>
+    <ul>
+      <li><strong>RoPE</strong>（LLaMA/Qwen/Mistral）：旋转实现相对编码，计算高效，外推好。当前 decoder-only 标配</li>
+      <li><strong>ALiBi</strong>（BLOOM/MPT）：不改 Q/K，而是在 attention score 上加一个与距离成比例的线性 bias。零额外参数、外推极好，但表达能力稍弱</li>
+      <li><strong>T5 bias</strong>：学习一个离散的 relative position bias table。表达能力好但不能外推</li>
+    </ul>
+    <p><strong>对推理引擎的影响</strong>：</p>
+    <ul>
+      <li>RoPE：在每步 decode 时对 Q/K 做 sin/cos 乘法，非常快</li>
+      <li>ALiBi：在 attention score 上加 bias，需要额外的 bias tensor（但不占 KV Cache）</li>
+      <li>Learned PE：推理时只是一次 embedding lookup，最简单</li>
+    </ul>
+    <div class="fu">为什么 ALiBi 的外推能力比 RoPE 还好？它的线性 bias 是怎么实现长度外推的？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">30</span>
+    <span class="qt">RoPE 在 GPU 上是怎么实现的？它的计算开销如何？</span>
+    <span class="tg tg-gpu">GPU</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：从数学到工程落地的能力</div>
+    <div class="al">参考答案</div>
+    <p><strong>朴素实现</strong>：构造 2x2 旋转矩阵做矩阵乘。但 2x2 矩阵乘太小，利用不了 Tensor Core。</p>
+    <p><strong>实际实现（逐元素）</strong>：利用旋转矩阵的特殊结构，展开为：</p>
+<pre>q[2i]'   = q[2i] * cos(θ) - q[2i+1] * sin(θ)
+q[2i+1]' = q[2i] * sin(θ) + q[2i+1] * cos(θ)</pre>
+    <p>只需 4 次乘法 + 2 次加法 per 2 个元素。是逐元素操作，完美并行。</p>
+    <p><strong>工程优化</strong>：</p>
+    <ul>
+      <li><strong>预计算 cos/sin table</strong>：启动时预计算所有位置的 cos/sin 值存为 tensor（shape: [max_len, head_dim/2]），推理时 lookup 即可</li>
+      <li><strong>融合到 QKV 投影 kernel</strong>：不单独起一个 RoPE kernel，而是在 attention kernel 内部做。减少一次 HBM 读写</li>
+      <li><strong>half2 向量化</strong>：BF16/FP16 下用 half2 做 2 个元素并行运算</li>
+    </ul>
+    <p><strong>开销极低</strong>：对于一个 decode step（batch=1, seq=1），RoPE 只处理 num_heads × head_dim 个元素的 sin/cos 乘法，远小于 attention 的 GEMM 开销（通常 &lt;1% 总时间）。</p>
+    <div class="fu">预计算 cos/sin table 对于长上下文模型（128K）会占多少显存？有没有必要做按需计算？</div>
+  </div></div>
+</div>
+
+<!-- ==================== 板块六：综合题 ==================== -->
+<h2>六、综合与对比（基础原理）</h2>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">31</span>
+    <span class="qt">把 Transformer 解码器的完整前向过程从头到尾说一遍：从 token id 进去，到下一个 token 的概率出来。</span>
+    <span class="tg tg-llm">LLM</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：全链路理解，把前面的零散知识串起来</div>
+    <div class="al">参考答案</div>
+<pre>输入: token_ids [batch, seq_len]
+
+1. Embedding:  token_ids → embed_tokens → [batch, seq_len, hidden_size]
+
+2. 重复 N 层（每层结构相同）:
+   ┌─ input_norm = RMSNorm(x)
+   ├─ Q, K, V = input_norm × W_q, W_k, W_v
+   ├─ 对 Q, K 施加 RoPE（注入位置信息）
+   ├─ 将 K, V 写入 KV Cache（decode 阶段追加到历史 KV 尾部）
+   ├─ attention_output = FlashAttention(Q, K_cache, V_cache)
+   ├─ x = x + attention_output                    ← 残差连接
+   ├─ post_norm = RMSNorm(x)
+   ├─ ffn_output = SwiGLU(post_norm × W_gate, post_norm × W_up) × W_down
+   └─ x = x + ffn_output                          ← 残差连接
+
+3. Final RMSNorm: x = RMSNorm(x)
+
+4. LM Head: logits = x × W_lm_head → [batch, seq_len, vocab_size]
+   （如果 tie_word_embeddings=true，W_lm_head = embed_tokens.weight^T）
+
+5. Sampling: softmax(logits[:, -1, :] / temperature) → 下一个 token 的概率分布</pre>
+    <p><strong>关键数值</strong>（以 Qwen3-0.6B 为例）：</p>
+    <ul>
+      <li>28 层，hidden_size=1024，16 Q heads，8 KV heads（GQA ratio=2）</li>
+      <li>SwiGLU FFN intermediate_size=3072</li>
+      <li>vocab_size=151936</li>
+    </ul>
+    <div class="fu">在 decode 阶段（一次只生成 1 个 token），整个前向过程中哪一步是计算瓶颈？哪一步是访存瓶颈？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">32</span>
+    <span class="qt">RMSNorm 和 LayerNorm 有什么区别？为什么现在的 LLM 几乎都用 RMSNorm？</span>
+    <span class="tg tg-math">数学</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：归一化方法间的数学和工程 trade-off</div>
+    <div class="al">参考答案</div>
+    <p><strong>LayerNorm</strong>：</p>
+    <div class="formula">y = (x - mean(x)) / √(var(x) + ε) × γ + β</div>
+    <p>需要计算 mean 和 var（两次 reduce），有两组可学习参数（γ scale + β bias）。</p>
+    <p><strong>RMSNorm</strong>：</p>
+    <div class="formula">y = x / √(mean(x²) + ε) × γ</div>
+    <p>只计算 x² 的均值（一次 reduce），只有 γ scale 参数，没有 β bias。</p>
+    <p><strong>为什么 LLM 偏好 RMSNorm</strong>：</p>
+    <ul>
+      <li><strong>计算量少 ~30%</strong>：省掉 mean 和 bias。每层执行两次 norm，28 层就是 56 次——累积起来不小</li>
+      <li><strong>参数量少</strong>：没有 bias，每层少 hidden_size 个参数</li>
+      <li><strong>实验效果相当</strong>：RMSNorm 论文证明 re-centering（减 mean）对 Transformer 效果影响极小，re-scaling（除 RMS）才是关键</li>
+      <li><strong>CUDA kernel 更简单</strong>：一次 reduce 比两次 reduce 更容易做到 warp-level 高效实现</li>
+    </ul>
+    <div class="fu">RMSNorm 的 epsilon 值一般设多少？为什么 BF16 推理时这个值更重要？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">33</span>
+    <span class="qt">SwiGLU 是什么？为什么现在的 LLM 的 FFN 层都用它而不是普通的 ReLU + 两层 MLP？</span>
+    <span class="tg tg-llm">LLM</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：FFN 层的演进和 GLU 变体的理解</div>
+    <div class="al">参考答案</div>
+    <p><strong>传统 FFN</strong>：</p>
+    <div class="formula">FFN(x) = ReLU(x · W₁) · W₂</div>
+    <p><strong>SwiGLU FFN</strong>：</p>
+    <div class="formula">FFN(x) = [SiLU(x · W_gate) ⊙ (x · W_up)] · W_down</div>
+    <p>其中 SiLU(x) = x · σ(x)（Swish 激活），⊙ 是逐元素相乘。</p>
+    <p><strong>GLU 的核心思想</strong>：引入一个<strong>门控机制</strong>——W_gate 控制哪些特征通过（门的开/关由输入内容决定），W_up 做实际的特征变换。相比简单的 ReLU（硬门控：<0 全截断），SiLU 是平滑的门控，梯度流更好。</p>
+    <p><strong>代价</strong>：多了一个 W_gate 矩阵。为了总参数量不变，intermediate_size 从 4h 缩小到 ~2.7h（8h/3 取整）。所以看到 intermediate_size=3072 而非 4096（对于 hidden_size=1024）。</p>
+    <p><strong>工程影响</strong>：</p>
+    <ul>
+      <li>FFN 从 2 个大 GEMM 变成 3 个 GEMM（gate + up + down）</li>
+      <li>gate 和 up 可以融合为一个 GEMM（concat 后一起算），实际只是 2 个 GEMM</li>
+      <li>SiLU 是逐元素操作，绑在逐元素乘法 kernel 里几乎零开销</li>
+    </ul>
+    <div class="fu">gate 和 up 融合为一个 GEMM 是怎么做到的？对 Tensor Core 利用率有影响吗？</div>
+  </div></div>
+</div>
+
+<div class="q" onclick="this.classList.toggle('open')">
+  <div class="qh">
+    <span class="qn">34</span>
+    <span class="qt">综合设计题：如果让你从零设计一个支持 128K 上下文的推理引擎，在 Attention 和位置编码方面你需要考虑哪些事情？</span>
+    <span class="tg tg-sys">工程</span>
+    <span class="arr">▶</span>
+  </div>
+  <div class="qb"><div class="a">
+    <div class="scenario">面试官意图：综合运用能力，把零散知识整合为系统设计</div>
+    <div class="al">参考答案</div>
+    <p><strong>位置编码</strong>：</p>
+    <ul>
+      <li>用 RoPE，theta 需要足够大（≥500000），否则高维度在 128K 处完全平坦</li>
+      <li>如果模型训练时 max_len 只有 8K，需要 NTK-aware 或 YaRN 外推</li>
+      <li>cos/sin table 预计算到 128K：128K × head_dim/2 × 2 bytes(BF16) ≈ 16MB（可接受）</li>
+    </ul>
+    <p><strong>Attention 计算</strong>：</p>
+    <ul>
+      <li><strong>必须用 Flash Attention</strong>：标准 attention 的 [128K, 128K] 矩阵占 32GB（FP16），不可能存下</li>
+      <li>Prefill 阶段的 128K token attention 是计算密集型（O(n²)），需要 chunked prefill（分段处理）</li>
+      <li>考虑 Ring Attention 做多 GPU 并行的长序列 attention</li>
+    </ul>
+    <p><strong>KV Cache</strong>：</p>
+    <ul>
+      <li>GQA 是必须的——MHA 在 128K 下 KV Cache 直接爆显存</li>
+      <li>128K 的 KV Cache 大小（70B 模型 GQA-8，BF16）：2 × 80层 × 8 × 128 × 128K × 2 ≈ 32GB</li>
+      <li>可能需要 FP8 KV Cache 量化（减半到 16GB）</li>
+      <li>PagedAttention + 足够小的 block size（16 token）减少尾部浪费</li>
+    </ul>
+    <p><strong>Scheduling</strong>：128K 请求占大量 KV Cache，调度器必须能感知 KV Cache 压力，避免 OOM，支持抢占（preemption）。</p>
+    <div class="fu">如果用户的请求 99% 都是短对话（&lt;4K），偶尔有 128K 的长文档总结，你的调度策略怎么设计？</div>
+  </div></div>
+</div>
+
+<footer>
+  AI Infra 面试题题库 — Config 模块 18 题 + Attention 与位置编码 16 题 — 共 34 题
+</footer>
+
+</body>
+</html>

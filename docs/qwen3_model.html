@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>nano-vllm-cpp Step 7 模型组装讲解</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --card: #161b22;
+    --card-soft: #11161d;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --text-muted: #8b949e;
+    --heading: #f0f6fc;
+    --accent: #58a6ff;
+    --accent2: #3fb950;
+    --accent3: #d2a8ff;
+    --warn-bg: #2d1b00;
+    --warn-border: #9e6a03;
+    --danger-bg: #2d1115;
+    --danger-border: #a40e26;
+    --mono-bg: #1a2030;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background:
+      radial-gradient(circle at top right, rgba(88, 166, 255, 0.08), transparent 28%),
+      radial-gradient(circle at top left, rgba(63, 185, 80, 0.06), transparent 24%),
+      var(--bg);
+    color: var(--text);
+    line-height: 1.72;
+    padding: 2rem;
+    max-width: 1080px;
+    margin: 0 auto;
+  }
+  h1 {
+    color: var(--heading);
+    font-size: 2.15rem;
+    margin-bottom: 0.6rem;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.85rem;
+  }
+  h1 span { color: var(--accent); }
+  .subtitle {
+    color: var(--text-muted);
+    margin-bottom: 2rem;
+    font-size: 0.95rem;
+  }
+  .toc {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem 1.4rem;
+    margin-bottom: 2rem;
+  }
+  .toc-title {
+    color: var(--heading);
+    font-weight: 600;
+    margin-bottom: 0.6rem;
+  }
+  .toc ul { list-style: none; }
+  .toc li { margin: 0.28rem 0; }
+  .toc a {
+    color: var(--accent);
+    text-decoration: none;
+    font-size: 0.94rem;
+  }
+  .toc a:hover { text-decoration: underline; }
+  h2 {
+    color: var(--heading);
+    font-size: 1.4rem;
+    margin: 2rem 0 1rem;
+    padding-left: 0.65rem;
+    border-left: 3px solid var(--accent);
+  }
+  h3 {
+    color: var(--heading);
+    font-size: 1.05rem;
+    margin: 1.25rem 0 0.7rem;
+  }
+  p {
+    margin-bottom: 0.85rem;
+    color: var(--text);
+  }
+  .section-desc {
+    color: var(--text-muted);
+    font-size: 0.93rem;
+    margin-bottom: 1rem;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 0.9rem;
+    margin: 1rem 0 1.25rem;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem 1.1rem;
+  }
+  .card h3 {
+    margin-top: 0;
+    color: var(--accent);
+  }
+  .badge {
+    display: inline-block;
+    padding: 0.12rem 0.5rem;
+    font-size: 0.74rem;
+    border-radius: 999px;
+    margin-left: 0.45rem;
+    vertical-align: middle;
+    border: 1px solid transparent;
+  }
+  .badge-wrap {
+    background: #122117;
+    color: #7ee787;
+    border-color: #1a4028;
+  }
+  .badge-model {
+    background: #1a2332;
+    color: #79c0ff;
+    border-color: #1f3a5f;
+  }
+  .badge-load {
+    background: #2a1f36;
+    color: var(--accent3);
+    border-color: #3d2e52;
+  }
+  .diagram {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.2rem;
+    margin: 1rem 0 1.4rem;
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    font-size: 0.86rem;
+    white-space: pre;
+    overflow-x: auto;
+    color: var(--text-muted);
+    line-height: 1.52;
+  }
+  .note, .danger {
+    border-radius: 8px;
+    padding: 0.8rem 1rem;
+    margin: 0.9rem 0 1rem;
+    font-size: 0.9rem;
+  }
+  .note {
+    background: var(--warn-bg);
+    border: 1px solid var(--warn-border);
+    color: #e3b341;
+  }
+  .danger {
+    background: var(--danger-bg);
+    border: 1px solid var(--danger-border);
+    color: #ffb3ba;
+  }
+  code {
+    font-family: 'SFMono-Regular', Consolas, monospace;
+    background: var(--mono-bg);
+    padding: 0.15rem 0.38rem;
+    border-radius: 4px;
+    color: #e6edf3;
+    font-size: 0.88rem;
+  }
+  pre {
+    background: var(--card-soft);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem 1.1rem;
+    overflow-x: auto;
+    margin: 0.8rem 0 1.1rem;
+  }
+  pre code {
+    background: transparent;
+    padding: 0;
+    font-size: 0.86rem;
+    line-height: 1.56;
+    display: block;
+  }
+  ul {
+    padding-left: 1.2rem;
+    margin-bottom: 1rem;
+  }
+  li { margin: 0.34rem 0; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0 1.2rem;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  th, td {
+    padding: 0.85rem 0.95rem;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+    vertical-align: top;
+  }
+  th {
+    color: var(--heading);
+    background: #131922;
+    font-weight: 600;
+  }
+  tr:last-child td { border-bottom: none; }
+  .pill-row {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin: 0.8rem 0 0.3rem;
+  }
+  .pill {
+    font-size: 0.8rem;
+    padding: 0.22rem 0.6rem;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--text-muted);
+  }
+  footer {
+    margin-top: 3rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    text-align: center;
+  }
+  @media (max-width: 700px) {
+    body { padding: 1rem; }
+    h1 { font-size: 1.8rem; }
+    table, thead, tbody, th, td, tr { display: block; }
+    thead { display: none; }
+    td {
+      border-bottom: 1px solid var(--border);
+      padding: 0.8rem 0.9rem;
+    }
+    tr:last-child td:last-child { border-bottom: none; }
+  }
+</style>
+</head>
+<body>
+
+<h1><span>nano-vllm-cpp</span> Step 7 模型组装讲解</h1>
+<p class="subtitle">基于 <code>include/models/qwen3.h</code>、<code>src/models/qwen3.cpp</code>、<code>include/layers/layernorm.h</code>、<code>src/layers/layernorm.cpp</code>、<code>include/layers/rotary_embedding.h</code>、<code>src/layers/rotary_embedding.cpp</code>、<code>include/layers/activation.h</code>、<code>src/layers/activation.cpp</code>、<code>tests/test_models.cpp</code> 的实现解读。目标是讲清楚 Step 7 现在到底完成了什么：哪些模型构件已经真正拼起来了，权重树怎么注册给 Step 6 loader，用什么测试验证当前实现，以及哪些部分还明确留给 Step 8 / 多卡通信。</p>
+
+<div class="toc">
+  <div class="toc-title">目录</div>
+  <ul>
+    <li><a href="#overview">1. 模块总览</a></li>
+    <li><a href="#map">2. 文件与类型地图</a></li>
+    <li><a href="#wrappers">3. Step 7 补齐的 layer wrapper</a></li>
+    <li><a href="#attention">4. Qwen3Attention</a></li>
+    <li><a href="#decoder">5. Qwen3MLP 与 Qwen3DecoderLayer</a></li>
+    <li><a href="#model">6. Qwen3Model 与 Qwen3ForCausalLM</a></li>
+    <li><a href="#loader">7. 参数树注册、packed 映射与 load_weights</a></li>
+    <li><a href="#tests">8. 测试怎么证明 Step 7 可用</a></li>
+    <li><a href="#limits">9. 当前限制与下一步</a></li>
+  </ul>
+</div>
+
+<section id="overview">
+  <h2>1. 模块总览 <span class="badge badge-model">Step 7</span></h2>
+  <p class="section-desc">这一步不是再发明新的算子，而是把 Step 5 的线性层、Embedding、Attention、Sampler，和 Step 6 的参数加载机制，真正组装成一个能表达 Qwen3 参数树和前向路径的模型层级。</p>
+
+  <div class="grid">
+    <div class="card">
+      <h3>补齐 wrapper</h3>
+      <p>Step 7 新增了 <code>RMSNorm</code>、<code>RotaryEmbedding</code>、<code>SiluAndMul</code> 三个模块封装。它们不是新 kernel，而是给已有 kernel_ops 一个稳定、可注册参数、可嵌入模型树的面向对象接口。</p>
+    </div>
+    <div class="card">
+      <h3>模型层级</h3>
+      <p>新增 <code>Qwen3Attention</code>、<code>Qwen3MLP</code>、<code>Qwen3DecoderLayer</code>、<code>Qwen3Model</code>、<code>Qwen3ForCausalLM</code>，字段名与 Python 版参数树保持一致，方便 Step 6 的 loader 直接命中。</p>
+    </div>
+    <div class="card">
+      <h3>加载桥接</h3>
+      <p><code>Qwen3ForCausalLM::register_parameters</code> 和 <code>load_weights</code> 已经接上 Step 6。也就是说，Step 7 完成后，模型类本身就知道如何把 <code>q_proj / k_proj / v_proj</code> 和 <code>gate_proj / up_proj</code> 映射到 packed 参数。</p>
+    </div>
+    <div class="card">
+      <h3>验证方式</h3>
+      <p>当前不是直接拿真实 Qwen3-0.6B 做全量 logits 对比，而是先用 tiny config 构造一个可手算的 1 层模型，验证前向、参数注册和 tie embeddings 行为，确保组装逻辑正确。</p>
+    </div>
+  </div>
+
+  <div class="pill-row">
+    <span class="pill">模型字段命名与 Python 版对齐</span>
+    <span class="pill">loader 可注册真实参数树</span>
+    <span class="pill">当前实现仍然偏最小工作版</span>
+    <span class="pill">真实端到端 Runner 留给 Step 8</span>
+  </div>
+
+  <div class="diagram">Step 7 完成后的类关系
+Qwen3ForCausalLM
+  ├── Qwen3Model
+  │     ├── VocabParallelEmbedding embed_tokens
+  │     ├── vector&lt;Qwen3DecoderLayer&gt; layers
+  │     │     ├── RMSNorm input_layernorm
+  │     │     ├── Qwen3Attention self_attn
+  │     │     │     ├── QKVParallelLinear qkv_proj
+  │     │     │     ├── RowParallelLinear o_proj
+  │     │     │     ├── RotaryEmbedding rotary_emb
+  │     │     │     ├── Attention attn
+  │     │     │     └── optional&lt;RMSNorm&gt; q_norm / k_norm
+  │     │     ├── RMSNorm post_attention_layernorm
+  │     │     └── Qwen3MLP mlp
+  │     │           ├── MergedColumnParallelLinear gate_up_proj
+  │     │           ├── SiluAndMul act_fn
+  │     │           └── RowParallelLinear down_proj
+  │     └── RMSNorm norm
+  └── ParallelLMHead lm_head</div>
+</section>
+
+<section id="map">
+  <h2>2. 文件与类型地图</h2>
+  <p class="section-desc">Step 7 实际跨了两层：一层是 wrapper，把 kernel 变成模块；另一层是 Qwen3 模型树，把这些模块拼成完整的参数结构与 forward 路径。</p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>文件</th>
+        <th>角色</th>
+        <th>在 Step 7 中负责什么</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>include/layers/layernorm.h</code><br><code>src/layers/layernorm.cpp</code></td>
+        <td>RMSNorm wrapper</td>
+        <td>封装单输入 RMSNorm、双输入 add+rms_norm，以及 weight_loader；构造时把权重初始化为全 1。</td>
+      </tr>
+      <tr>
+        <td><code>include/layers/rotary_embedding.h</code><br><code>src/layers/rotary_embedding.cpp</code></td>
+        <td>RoPE wrapper</td>
+        <td>预计算 <code>cos_sin_cache</code>，并在前向里调用 <code>rotary_embedding</code> kernel。</td>
+      </tr>
+      <tr>
+        <td><code>include/layers/activation.h</code><br><code>src/layers/activation.cpp</code></td>
+        <td>激活 wrapper</td>
+        <td>为 MLP 的 gate/up 输出分配结果 Tensor，再调用 <code>silu_and_mul</code> kernel。</td>
+      </tr>
+      <tr>
+        <td><code>include/models/qwen3.h</code><br><code>src/models/qwen3.cpp</code></td>
+        <td>模型树</td>
+        <td>定义 Qwen3Attention / MLP / DecoderLayer / Model / ForCausalLM，并实现参数注册与 load_weights 入口。</td>
+      </tr>
+      <tr>
+        <td><code>tests/test_models.cpp</code></td>
+        <td>模型级测试</td>
+        <td>验证 tiny Qwen3 的前向输出、参数树注册、packed mapping 可见性、以及 tie embeddings 行为。</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="wrappers">
+  <h2>3. Step 7 补齐的 layer wrapper <span class="badge badge-wrap">wrapper</span></h2>
+  <p class="section-desc">Step 5 已经有 kernel 或函数级实现，但模型树还缺“可持有参数、可复用、可注册 loader”的对象层。Step 7 补的其实就是这一层。</p>
+
+  <div class="grid">
+    <div class="card">
+      <h3>RMSNorm</h3>
+      <p>构造时分配一维 <code>weight_</code>，并根据 dtype 用 host 常量把它初始化成全 1。前向分成两条路径：</p>
+      <ul>
+        <li>单输入：直接调用 <code>rms_norm(input, weight_, eps_)</code></li>
+        <li>双输入：调用 <code>add_rms_norm(input, residual, weight_, eps_)</code>，同时返回 <code>output</code> 和新的 <code>residual_out</code></li>
+      </ul>
+      <p>这让 DecoderLayer 可以很自然地复用“第一层”和“后续层”的两种残差路径。</p>
+    </div>
+    <div class="card">
+      <h3>RotaryEmbedding</h3>
+      <p>构造函数里就把 <code>cos</code> / <code>sin</code> cache 在 host 上算好，再一次性拷到 CUDA。前向时不再重新算频率，只做位置索引和旋转应用。</p>
+      <div class="note">当前实现要求 <code>rotary_dim == head_size</code> 且 <code>rotary_dim</code> 为偶数，也就是说它针对当前 Qwen3 场景做了收敛，没有扩成更泛化的 partial rotary。</div>
+    </div>
+    <div class="card">
+      <h3>SiluAndMul</h3>
+      <p>它几乎不持有状态，只做两件事：</p>
+      <ul>
+        <li>检查最后一维能不能被 2 整除</li>
+        <li>分配一个最后一维减半的输出 Tensor，然后调用 <code>silu_and_mul</code></li>
+      </ul>
+      <p>这样 MLP 代码就可以直接写成 <code>gate_up -&gt; act_fn -&gt; down_proj</code>，不用每次手动分配输出。</p>
+    </div>
+  </div>
+
+  <pre><code>// Step 7 不是再写一遍 kernel，而是把 Step 5 的算子收口成模块接口。
+RMSNorm.forward(x)                 -> rms_norm(...)
+RMSNorm.forward(x, residual)       -> add_rms_norm(...)
+RotaryEmbedding.forward(pos, q, k) -> rotary_embedding(...)
+SiluAndMul.forward(gate_up)        -> silu_and_mul(...)</code></pre>
+</section>
+
+<section id="attention">
+  <h2>4. Qwen3Attention <span class="badge badge-model">attention</span></h2>
+  <p class="section-desc">这是 Step 7 里信息最密的一层。它一方面要把 TP 下的 head 切分和 Step 5 的线性层接口接起来，另一方面要保持字段名和参数树命名与 Python 版一致。</p>
+
+  <h3>4.1 构造函数做了哪些事</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>字段</th>
+        <th>来源</th>
+        <th>作用</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>num_heads_</code> / <code>num_kv_heads_</code></td>
+        <td>总 head 数除以 <code>tp_size</code></td>
+        <td>表达当前 rank 的局部 head 数量。</td>
+      </tr>
+      <tr>
+        <td><code>head_dim_</code></td>
+        <td><code>config.head_dim</code> 或 <code>hidden / num_heads</code></td>
+        <td>与 Python 版一致，允许 HF config 显式提供。</td>
+      </tr>
+      <tr>
+        <td><code>q_size_</code> / <code>kv_size_</code></td>
+        <td>局部 head 数乘以 <code>head_dim</code></td>
+        <td>后面切 <code>qkv</code> 时就按这个大小分块。</td>
+      </tr>
+      <tr>
+        <td><code>qkv_proj_</code></td>
+        <td><code>QKVParallelLinear</code></td>
+        <td>生成 packed 的 <code>[q | k | v]</code> 连续输出。</td>
+      </tr>
+      <tr>
+        <td><code>o_proj_</code></td>
+        <td><code>RowParallelLinear</code></td>
+        <td>把 attention 输出重新投回 hidden size。</td>
+      </tr>
+      <tr>
+        <td><code>rotary_emb_</code></td>
+        <td><code>RotaryEmbedding</code></td>
+        <td>持有 RoPE cache，并在前向应用到 q/k。</td>
+      </tr>
+      <tr>
+        <td><code>q_norm_</code> / <code>k_norm_</code></td>
+        <td>仅 <code>attention_bias == false</code> 时创建</td>
+        <td>贴近 Python 版的 Qwen3 分支：无 bias 时做 per-head RMSNorm。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>4.2 forward 的实际执行顺序</h3>
+  <div class="diagram">hidden_states
+  -> qkv_proj_.forward(...)
+  -> qkv : [N, q_size + kv_size + kv_size]
+  -> slice_last_dim_contiguous(q)
+  -> slice_last_dim_contiguous(k)
+  -> slice_last_dim_contiguous(v)
+  -> reshape q : [N, num_heads_, head_dim_]
+  -> reshape k : [N, num_kv_heads_, head_dim_]
+  -> reshape v : [N, num_kv_heads_, head_dim_]
+  -> if !qkv_bias_: q_norm, k_norm
+  -> rotary_emb_.forward(positions, q, k)
+  -> attn_.forward(q, k, v)
+  -> reshape output : [N, q_size_]
+  -> o_proj_.forward(...)
+  -> attention output</div>
+
+  <h3>4.3 为什么这里会出现 <code>slice_last_dim_contiguous</code></h3>
+  <p>这是当前 Step 7 最值得专门解释的一点。<code>QKVParallelLinear</code> 输出的是一个 packed 的连续 Tensor，但 Step 5 的 Tensor 运行时还没有提供“设备侧沿最后一维切片并直接得到连续张量”的高层操作。于是 Step 7 在模型层里加了一个内部 helper：</p>
+  <ul>
+    <li>先把整个输入 Tensor 拷回 host</li>
+    <li>按最后一维范围做逐行 <code>memcpy</code></li>
+    <li>再把结果拷回目标设备 Tensor</li>
+  </ul>
+  <div class="danger">这说明当前 Step 7 是“功能优先”的最小工作版。它保证 q/k/v 切分与 reshape 语义正确，但还不是最终性能路径。后续如果要做真正的高性能推理，这里应该被设备侧 contiguous narrow/copy 或更低层 view/copy primitive 替换。</div>
+
+  <h3>4.4 参数注册树</h3>
+  <p><code>Qwen3Attention::register_parameters</code> 会把以下名字挂到注册表里：</p>
+  <ul>
+    <li><code>...self_attn.qkv_proj.weight</code></li>
+    <li><code>...self_attn.qkv_proj.bias</code>，仅当 qkv bias 开启</li>
+    <li><code>...self_attn.o_proj.weight</code></li>
+    <li><code>...self_attn.o_proj.bias</code>，仅当 o_proj 带 bias</li>
+    <li><code>...self_attn.q_norm.weight</code> / <code>k_norm.weight</code>，仅当 qkv bias 关闭</li>
+  </ul>
+  <p>这样 Step 6 loader 就可以直接把 HF 权重映射到这里，而不需要再猜模型内部结构。</p>
+</section>
+
+<section id="decoder">
+  <h2>5. Qwen3MLP 与 Qwen3DecoderLayer</h2>
+  <p class="section-desc">这一节的重点不是“结构长什么样”，而是“Step 7 是如何把残差流和 MLP 压成当前已有算子接口的”。</p>
+
+  <h3>5.1 Qwen3MLP</h3>
+  <p>当前实现严格跟 Python 版对齐：</p>
+  <pre><code>gate_up = gate_up_proj(x)
+activated = act_fn.forward(gate_up)
+output = down_proj(activated)</code></pre>
+  <p>其中：</p>
+  <ul>
+    <li><code>gate_up_proj_</code> 是 <code>MergedColumnParallelLinear(hidden, [intermediate, intermediate])</code></li>
+    <li><code>act_fn_</code> 是上面补齐的 <code>SiluAndMul</code></li>
+    <li><code>down_proj_</code> 是 <code>RowParallelLinear(intermediate, hidden)</code></li>
+  </ul>
+  <div class="note">构造函数里明确校验了 <code>hidden_act == "silu"</code>。也就是说，这个实现是 Qwen3 定向的，不是“任意 MLP 激活都能套”的通用模块。</div>
+
+  <h3>5.2 Qwen3DecoderLayer 的残差路径</h3>
+  <p>这一层最容易被误读的地方，是 <code>residual</code> 不是每层都重新创建，而是沿着每层 forward 一直往后传。当前实现正是按 Python 版的 Pre-Norm 逻辑写的：</p>
+  <table>
+    <thead>
+      <tr>
+        <th>阶段</th>
+        <th>当前实现</th>
+        <th>含义</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>第一层进入时</td>
+        <td><code>residual</code> 未定义，直接令 <code>next_residual = hidden_states</code>，然后对 <code>hidden_states</code> 做普通 RMSNorm</td>
+        <td>建立第一份残差基线。</td>
+      </tr>
+      <tr>
+        <td>后续层进入时</td>
+        <td>走 <code>input_layernorm_.forward(hidden_states, residual)</code></td>
+        <td>调用 fused <code>add_rms_norm</code>，同时得到新的归一化输出和新的 residual。</td>
+      </tr>
+      <tr>
+        <td>attention 之后</td>
+        <td>再次走 <code>post_attention_layernorm_.forward(hidden, next_residual)</code></td>
+        <td>把 attention 输出和残差重新融合，再进入 MLP。</td>
+      </tr>
+      <tr>
+        <td>返回值</td>
+        <td><code>{hidden_after_mlp, residual_after_post_attn}</code></td>
+        <td>供下一层继续复用残差流。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="diagram">DecoderLayer.forward(positions, hidden_states, residual)
+  if residual is undefined:
+      residual = hidden_states
+      hidden = input_layernorm(hidden_states)
+  else:
+      hidden, residual = input_layernorm(hidden_states, residual)
+
+  hidden = self_attn(hidden)
+  hidden, residual = post_attention_layernorm(hidden, residual)
+  hidden = mlp(hidden)
+  return hidden, residual</div>
+
+  <h3>5.3 KV cache 注入点</h3>
+  <p><code>Qwen3DecoderLayer::set_kv_cache</code> 只是把工作转交给 <code>self_attn_</code>。这很重要，因为这说明 Step 7 已经把“每层 attention 需要独立 cache 视图”这个接口预留好了，但具体 cache 的整体分配与切片时机仍然属于 Step 8 的 Runner 责任。</p>
+</section>
+
+<section id="model">
+  <h2>6. Qwen3Model 与 Qwen3ForCausalLM</h2>
+  <p class="section-desc">Step 7 最核心的交付物，不是某个单独类，而是完整的模型树已经成立：能接收 token 和 positions，能把输出交给 lm_head，能把参数树完整暴露给 loader。</p>
+
+  <h3>6.1 Qwen3Model</h3>
+  <p>当前 <code>Qwen3Model</code> 的 forward 很直白：</p>
+  <pre><code>hidden_states = embed_tokens(input_ids)
+residual = undefined
+for layer in layers:
+    hidden_states, residual = layer.forward(positions, hidden_states, residual)
+if residual is defined:
+    hidden_states = norm.forward(hidden_states, residual).first
+else:
+    hidden_states = norm.forward(hidden_states)
+return hidden_states</code></pre>
+  <p>这里的几个实现细节值得注意：</p>
+  <ul>
+    <li><code>embed_tokens_</code> 与 <code>norm_</code> 都由 <code>Config::hf_config</code> 初始化，不需要手写重复参数。</li>
+    <li><code>layers_</code> 用 <code>vector&lt;Qwen3DecoderLayer&gt;</code> 持有，并在构造函数里按 <code>num_hidden_layers</code> 循环 emplace。</li>
+    <li>最终 norm 也优先走 fused 残差路径，这和 Python 版的 <code>hidden_states, _ = norm(hidden_states, residual)</code> 是对齐的。</li>
+  </ul>
+
+  <h3>6.2 Qwen3ForCausalLM</h3>
+  <p><code>Qwen3ForCausalLM</code> 只做三件关键事情：</p>
+  <ul>
+    <li>持有 <code>model_</code> 与 <code>lm_head_</code></li>
+    <li>当 <code>tie_word_embeddings</code> 为真时，把 <code>lm_head_</code> 的 weight 直接指向 <code>embed_tokens_</code> 的 weight</li>
+    <li>暴露 <code>forward</code>、<code>compute_logits</code>、<code>register_parameters</code>、<code>load_weights</code> 这四个对外接口</li>
+  </ul>
+
+  <div class="note">当前的权重共享不是“复制一份数据”，而是把 <code>Tensor</code> 句柄直接赋给 <code>lm_head_</code>。测试里验证的是两者 <code>data()</code> 指针相同，这符合“共享一块底层存储”的语义。</div>
+
+  <h3>6.3 模型级接口边界</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>接口</th>
+        <th>当前职责</th>
+        <th>不负责什么</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>forward(input_ids, positions)</code></td>
+        <td>跑 token embedding 到 final norm 的主干前向</td>
+        <td>不做采样，不做 Scheduler/Runner 输入准备</td>
+      </tr>
+      <tr>
+        <td><code>compute_logits(hidden_states)</code></td>
+        <td>把 hidden states 送进 <code>lm_head_</code></td>
+        <td>不做 softmax / sampler</td>
+      </tr>
+      <tr>
+        <td><code>set_layer_kv_cache(layer_index, ...)</code></td>
+        <td>把单层 KV cache 句柄注入 attention</td>
+        <td>不负责整体 KV cache 分配</td>
+      </tr>
+      <tr>
+        <td><code>load_weights(path, allocator)</code></td>
+        <td>构建 registry 并调用 Step 6 loader</td>
+        <td>不做模型目录发现、Runner 初始化、真实端到端比对</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="loader">
+  <h2>7. 参数树注册、packed 映射与 load_weights <span class="badge badge-load">loader bridge</span></h2>
+  <p class="section-desc">Step 7 和 Step 6 的真正接口，不是某个单独的 weight_loader，而是“整个模型是否能把自己的参数树按正确名字注册出去”。这一节讲的就是这个桥。</p>
+
+  <h3>7.1 packed_modules_mapping</h3>
+  <p><code>Qwen3ForCausalLM::packed_modules_mapping()</code> 当前返回固定 5 项映射：</p>
+  <table>
+    <thead>
+      <tr>
+        <th>HF 原始名片段</th>
+        <th>模型内部目标名</th>
+        <th>shard_id</th>
+        <th>含义</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>q_proj</code></td>
+        <td><code>qkv_proj</code></td>
+        <td>0</td>
+        <td>写入 packed QKV 的 Q 区间</td>
+      </tr>
+      <tr>
+        <td><code>k_proj</code></td>
+        <td><code>qkv_proj</code></td>
+        <td>1</td>
+        <td>写入 K 区间</td>
+      </tr>
+      <tr>
+        <td><code>v_proj</code></td>
+        <td><code>qkv_proj</code></td>
+        <td>2</td>
+        <td>写入 V 区间</td>
+      </tr>
+      <tr>
+        <td><code>gate_proj</code></td>
+        <td><code>gate_up_proj</code></td>
+        <td>0</td>
+        <td>写入 gate 区间</td>
+      </tr>
+      <tr>
+        <td><code>up_proj</code></td>
+        <td><code>gate_up_proj</code></td>
+        <td>1</td>
+        <td>写入 up 区间</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>7.2 register_parameters 是怎么铺开整棵树的</h3>
+  <div class="diagram">Qwen3ForCausalLM::register_parameters
+  ├── model_.register_parameters("model")
+  │     ├── model.embed_tokens.weight
+  │     ├── model.layers.0.input_layernorm.weight
+  │     ├── model.layers.0.self_attn.qkv_proj.weight
+  │     ├── model.layers.0.self_attn.o_proj.weight
+  │     ├── model.layers.0.self_attn.q_norm.weight / k_norm.weight
+  │     ├── model.layers.0.post_attention_layernorm.weight
+  │     ├── model.layers.0.mlp.gate_up_proj.weight
+  │     ├── model.layers.0.mlp.down_proj.weight
+  │     ├── ... more layers ...
+  │     └── model.norm.weight
+  └── lm_head.weight</div>
+  <p>这意味着 Step 6 loader 不再需要一个“模型无关的外部参数表”，因为模型类自己就知道完整的注册逻辑。</p>
+
+  <h3>7.3 load_weights 的入口非常薄</h3>
+  <pre><code>ParameterRegistry registry;
+register_parameters(registry);
+registry.load(path, packed_modules_mapping(), allocator, stream);</code></pre>
+  <p>这段代码短，但信息密度很高：</p>
+  <ul>
+    <li>模型类自己负责创建并填充 registry</li>
+    <li>Step 6 仍然负责 SafeTensors 解析、packed 名称解析与 copy 规则</li>
+    <li>Step 7 负责把“参数树命名”和“每个参数落到哪个模块/哪个 shard”这件事变成显式代码</li>
+  </ul>
+</section>
+
+<section id="tests">
+  <h2>8. 测试怎么证明 Step 7 可用</h2>
+  <p class="section-desc">当前测试不是为了证明“真实 Qwen3-0.6B 已完全还原”，而是为了证明 Step 7 作为组装层，前向结构、参数注册和权重共享语义都成立。</p>
+
+  <h3>8.1 Tiny Qwen3 前向测试</h3>
+  <p><code>Qwen3ForCausalLmForwardAndLogitsMatchReference</code> 用一个极小配置手工构造模型：</p>
+  <ul>
+    <li><code>hidden_size = 2</code></li>
+    <li><code>num_attention_heads = 1</code></li>
+    <li><code>num_hidden_layers = 1</code></li>
+    <li><code>intermediate_size = 2</code></li>
+    <li><code>vocab_size = 3</code></li>
+  </ul>
+  <p>然后通过几组刻意简单的权重，让 attention 近似保持输入结构、让 MLP 权重全零，以便把期望输出压缩成“embedding 经过 RMSNorm 后，再乘 lm_head”的可手算形式。</p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>测试设置</th>
+        <th>目的</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>qkv_proj.weight</code> 设成分块 identity 风格</td>
+        <td>让 q / k / v 的语义容易追踪。</td>
+      </tr>
+      <tr>
+        <td><code>o_proj.weight</code> 设成 identity</td>
+        <td>让 attention 输出不再被额外混合。</td>
+      </tr>
+      <tr>
+        <td><code>gate_up_proj</code> 与 <code>down_proj</code> 全零</td>
+        <td>把 MLP 的影响消掉，专注验证主干组装逻辑。</td>
+      </tr>
+      <tr>
+        <td>所有 norm weight 设成全 1</td>
+        <td>让期望值退化成标准 RMSNorm，可直接手算。</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>8.2 参数树注册测试</h3>
+  <p><code>Qwen3RegistersExpectedParametersAndPackedMappings</code> 检查的是“模型类是否真的暴露了 loader 需要的参数路径”。它验证了：</p>
+  <ul>
+    <li><code>model.embed_tokens.weight</code> 存在</li>
+    <li><code>model.layers.0.self_attn.qkv_proj.weight</code> 存在</li>
+    <li><code>model.layers.0.mlp.gate_up_proj.weight</code> / <code>down_proj.weight</code> 存在</li>
+    <li><code>model.norm.weight</code> 与 <code>lm_head.weight</code> 存在</li>
+    <li><code>packed_modules_mapping</code> 返回 5 项，且第一项就是 <code>q_proj -&gt; qkv_proj, shard 0</code></li>
+  </ul>
+
+  <h3>8.3 权重共享测试</h3>
+  <p><code>Qwen3TiesEmbeddingAndLmHeadWeightsWhenRequested</code> 不看数值，只比较两个 <code>Tensor</code> 的 <code>data()</code> 指针是否相同。这个测试证明当 <code>tie_word_embeddings = true</code> 时，<code>lm_head</code> 确实共享 <code>embed_tokens</code> 的底层存储，而不是复制一份内容。</p>
+
+  <div class="note">当前仓库在 Step 7 完成后，模型级测试 <code>test_models</code> 已接入 CMake，并且和现有 <code>test_config / test_sequence / test_block_manager / test_scheduler / test_tensor / test_layers / test_loader</code> 一起通过了完整 <code>ctest</code>。</div>
+</section>
+
+<section id="limits">
+  <h2>9. 当前限制与下一步</h2>
+  <p class="section-desc">这一节很重要。Step 7 已经完成“模型树成立”，但并不等于整个推理引擎已经端到端闭环。下面这些边界必须明确写清楚。</p>
+
+  <ul>
+    <li>当前实现仍然是最小工作版，默认工作路径主要围绕当前仓库已有的 float32 导向算子栈。</li>
+    <li><code>Qwen3Attention</code> 中的 <code>slice_last_dim_contiguous</code> 会走 host-side materialization，用来保证 q/k/v 切片语义正确，但这不是最终高性能路径。</li>
+    <li><code>RotaryEmbedding</code> 当前只支持 <code>rotary_dim == head_size</code> 的全量 rotary，不支持更复杂的 partial rotary / rope_scaling 分支。</li>
+    <li>Step 7 已经有 <code>set_layer_kv_cache</code> 接口，但 KV cache 的整体分配、每层切片注入、prefill/decode 输入准备仍属于 Step 8 的 <code>ModelRunner</code> 工作。</li>
+    <li><code>load_weights</code> 已能调用 Step 6 loader，但“真实 Qwen3-0.6B 权重 + 与 Python 版 logits 对齐到 &lt; 1e-3”这个验证目标还没有在当前文档对应的实现里完成。</li>
+    <li>多卡 all-reduce / gather 已在底层层模块语义上预留，但真正的通信执行仍属于后续多卡阶段，不是 Step 7 的交付物。</li>
+  </ul>
+
+  <div class="diagram">Step 7 之后的真实边界
+已经完成：
+  kernel wrapper -> 模块接口
+  Qwen3 模型树 -> forward / compute_logits
+  参数注册树 -> Step 6 loader bridge
+  tie embeddings -> 共享 Tensor 存储
+  tiny config 模型测试 -> 结构正确性验证
+
+尚未完成：
+  ModelRunner 输入准备与 KV cache 全局挂载
+  真实模型目录加载后与 Python 版 logits 对齐验证
+  qkv 分片的高性能设备侧 contiguous 路径
+  真正的多卡通信调用</div>
+</section>
+
+<footer>
+  Step 7 文档基于当前仓库实现生成，强调“代码已做成什么”而不是“架构最终想做什么”。
+</footer>
+
+</body>
+</html>

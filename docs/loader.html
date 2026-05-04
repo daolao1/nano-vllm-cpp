@@ -1,0 +1,959 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>nano-vllm-cpp 权重加载模块讲解</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --card: #161b22;
+    --card-soft: #11161d;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --text-muted: #8b949e;
+    --heading: #f0f6fc;
+    --accent: #58a6ff;
+    --accent2: #3fb950;
+    --accent3: #d2a8ff;
+    --warn-bg: #2d1b00;
+    --warn-border: #9e6a03;
+    --danger-bg: #2d1115;
+    --danger-border: #a40e26;
+    --mono-bg: #1a2030;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    background:
+      radial-gradient(circle at top right, rgba(88, 166, 255, 0.08), transparent 28%),
+      radial-gradient(circle at top left, rgba(63, 185, 80, 0.06), transparent 24%),
+      var(--bg);
+    color: var(--text);
+    line-height: 1.72;
+    padding: 2rem;
+    max-width: 1080px;
+    margin: 0 auto;
+  }
+  h1 {
+    color: var(--heading);
+    font-size: 2.15rem;
+    margin-bottom: 0.6rem;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.85rem;
+  }
+  h1 span { color: var(--accent); }
+  .subtitle {
+    color: var(--text-muted);
+    margin-bottom: 2rem;
+    font-size: 0.95rem;
+  }
+  .toc {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem 1.4rem;
+    margin-bottom: 2rem;
+  }
+  .toc-title {
+    color: var(--heading);
+    font-weight: 600;
+    margin-bottom: 0.6rem;
+  }
+  .toc ul { list-style: none; }
+  .toc li { margin: 0.28rem 0; }
+  .toc a {
+    color: var(--accent);
+    text-decoration: none;
+    font-size: 0.94rem;
+  }
+  .toc a:hover { text-decoration: underline; }
+  h2 {
+    color: var(--heading);
+    font-size: 1.4rem;
+    margin: 2rem 0 1rem;
+    padding-left: 0.65rem;
+    border-left: 3px solid var(--accent);
+  }
+  h3 {
+    color: var(--heading);
+    font-size: 1.05rem;
+    margin: 1.25rem 0 0.7rem;
+  }
+  p {
+    margin-bottom: 0.85rem;
+    color: var(--text);
+  }
+  .section-desc {
+    color: var(--text-muted);
+    font-size: 0.93rem;
+    margin-bottom: 1rem;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 0.9rem;
+    margin: 1rem 0 1.25rem;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem 1.1rem;
+  }
+  .card h3 {
+    margin-top: 0;
+    color: var(--accent);
+  }
+  .badge {
+    display: inline-block;
+    padding: 0.12rem 0.5rem;
+    font-size: 0.74rem;
+    border-radius: 999px;
+    margin-left: 0.45rem;
+    vertical-align: middle;
+    border: 1px solid transparent;
+  }
+  .badge-parse {
+    background: #122117;
+    color: #7ee787;
+    border-color: #1a4028;
+  }
+  .badge-dispatch {
+    background: #1a2332;
+    color: #79c0ff;
+    border-color: #1f3a5f;
+  }
+  .badge-packed {
+    background: #2a1f36;
+    color: var(--accent3);
+    border-color: #3d2e52;
+  }
+  .diagram {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.2rem;
+    margin: 1rem 0 1.4rem;
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    font-size: 0.86rem;
+    white-space: pre;
+    overflow-x: auto;
+    color: var(--text-muted);
+    line-height: 1.52;
+  }
+  .note, .danger {
+    border-radius: 8px;
+    padding: 0.8rem 1rem;
+    margin: 0.9rem 0 1rem;
+    font-size: 0.9rem;
+  }
+  .note {
+    background: var(--warn-bg);
+    border: 1px solid var(--warn-border);
+    color: #e3b341;
+  }
+  .danger {
+    background: var(--danger-bg);
+    border: 1px solid var(--danger-border);
+    color: #ffb3ba;
+  }
+  code {
+    font-family: 'SFMono-Regular', Consolas, monospace;
+    background: var(--mono-bg);
+    padding: 0.15rem 0.38rem;
+    border-radius: 4px;
+    color: #e6edf3;
+    font-size: 0.88rem;
+  }
+  pre {
+    background: var(--card-soft);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem 1.1rem;
+    overflow-x: auto;
+    margin: 0.8rem 0 1.1rem;
+  }
+  pre code {
+    background: transparent;
+    padding: 0;
+    font-size: 0.86rem;
+    line-height: 1.56;
+    display: block;
+  }
+  ul {
+    padding-left: 1.2rem;
+    margin-bottom: 1rem;
+  }
+  li { margin: 0.34rem 0; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0 1.2rem;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  th, td {
+    padding: 0.85rem 0.95rem;
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+    vertical-align: top;
+  }
+  th {
+    color: var(--heading);
+    background: #131922;
+    font-weight: 600;
+  }
+  tr:last-child td { border-bottom: none; }
+  .pill-row {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin: 0.8rem 0 0.3rem;
+  }
+  .pill {
+    font-size: 0.8rem;
+    padding: 0.22rem 0.6rem;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--text-muted);
+  }
+  footer {
+    margin-top: 3rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 0.82rem;
+    text-align: center;
+  }
+  @media (max-width: 700px) {
+    body { padding: 1rem; }
+    h1 { font-size: 1.8rem; }
+    table, thead, tbody, th, td, tr { display: block; }
+    thead { display: none; }
+    td {
+      border-bottom: 1px solid var(--border);
+      padding: 0.8rem 0.9rem;
+    }
+    tr:last-child td:last-child { border-bottom: none; }
+  }
+</style>
+</head>
+<body>
+
+<h1><span>nano-vllm-cpp</span> 权重加载模块讲解</h1>
+<p class="subtitle">基于 <code>include/utils/loader.h</code>、<code>src/utils/loader.cpp</code>、<code>include/layers/linear.h</code>、<code>src/layers/linear.cpp</code>、<code>include/layers/embed_head.h</code>、<code>src/layers/embed_head.cpp</code>、<code>tests/test_loader.cpp</code> 的实现解读。目标是讲清楚 SafeTensors 如何被解析成 CPU Tensor 视图、如何通过 ParameterRegistry 分发到运行时参数，以及 packed QKV / GateUp 权重是怎样写入合并参数的。</p>
+
+<div class="toc">
+  <div class="toc-title">目录</div>
+  <ul>
+    <li><a href="#overview">1. 模块总览</a></li>
+    <li><a href="#map">2. 文件与类型地图</a></li>
+    <li><a href="#parser">3. SafeTensors 解析流程</a></li>
+    <li><a href="#registry">4. 注册表与 packed 映射</a></li>
+    <li><a href="#loaders">5. 各层 weight_loader 行为</a></li>
+    <li><a href="#copy">6. 类型转换与复制规则</a></li>
+    <li><a href="#example">7. 端到端 packed 示例</a></li>
+    <li><a href="#errors">8. 错误路径与调试顺序</a></li>
+    <li><a href="#tests">9. 测试覆盖与讲解角度</a></li>
+    <li><a href="#limits">10. 当前限制与下一步</a></li>
+  </ul>
+</div>
+
+<h2 id="overview">1. 模块总览</h2>
+<p class="section-desc">一句话总结：这一层不是“读文件的小工具”，而是一条把磁盘权重安全搬运到运行时参数张量上的加载通道。它负责文件格式校验、名字改写、参数路由、shard 选择和必要的 BF16 到 float32 转换，但不负责真实 Qwen3 模型树的注册与装配。</p>
+
+<div class="grid">
+  <div class="card">
+    <h3>文件解析 <span class="badge badge-parse">mmap</span></h3>
+    <p>SafeTensorsFile::open 把 <code>.safetensors</code> 文件解析成一组 CPU Tensor 视图。正文数据通过 mmap 暴露，不会先复制到新的主机缓冲区。</p>
+  </div>
+  <div class="card">
+    <h3>名称分发 <span class="badge badge-dispatch">registry</span></h3>
+    <p>ParameterRegistry 把权重名映射到具体 loader 回调。它不关心参数属于哪一层，只负责根据目标名调用对应的加载动作。</p>
+  </div>
+  <div class="card">
+    <h3>packed 改名 <span class="badge badge-packed">qkv / gate_up</span></h3>
+    <p>HuggingFace 权重里拆开的 q_proj / k_proj / v_proj、gate_proj / up_proj 会先改成运行时的合并参数名，再附带 shard_id 交给目标层。</p>
+  </div>
+  <div class="card">
+    <h3>参数落盘</h3>
+    <p>真正决定写入哪一段参数的是各层自己的 <code>weight_loader</code> 或 <code>bias_loader</code>。层对象负责 shape 校验、TP shard 切分和目标区间选择。</p>
+  </div>
+</div>
+
+<div class="diagram">输入路径
+  │
+  ├── collect_safetensors_files(path)
+  │       └── 得到稳定排序的 .safetensors 文件列表
+  │
+  ├── SafeTensorsFile::open(file)
+  │       ├── 读 header_size
+  │       ├── 解析 JSON header
+  │       └── 为每个 entry 构造 CPU Tensor view
+  │
+  ├── resolve_packed_parameter_name(source_name, mapping, shard_id)
+  │       └── 源名字变成目标名字，可选地产生 shard_id
+  │
+  ├── ParameterRegistry::load(...)
+  │       └── 取到注册好的 loader 回调
+  │
+  └── layer.weight_loader(source, shard_id, allocator, stream)
+          └── copy_tensor_to_parameter(...) -> 写入 CUDA 参数</div>
+
+<div class="pill-row">
+  <span class="pill">解析层返回 CPU Tensor view</span>
+  <span class="pill">注册表层做名字到动作的路由</span>
+  <span class="pill">层对象决定 shard 与目标切片</span>
+  <span class="pill">复制层决定 dtype 是否可接受</span>
+</div>
+
+<h2 id="map">2. 文件与类型地图</h2>
+<p class="section-desc">这一部分把当前 Step 6 相关的文件、类型和职责拆开。后续如果要接 Step 7 模型组装，基本也会从这张地图往下接。</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>文件</th>
+      <th>核心类型 / 函数</th>
+      <th>职责</th>
+      <th>当前定位</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>include/utils/loader.h</code></td>
+      <td><code>PackedModuleMapping</code>、<code>SafeTensorsFile</code>、<code>ParameterRegistry</code></td>
+      <td>定义加载层公开接口</td>
+      <td>Step 6 的头文件入口</td>
+    </tr>
+    <tr>
+      <td><code>src/utils/loader.cpp</code></td>
+      <td><code>SafeTensorsFile::open</code>、<code>ParameterRegistry::load</code>、<code>copy_tensor_to_parameter</code></td>
+      <td>实现文件解析、名字分发、复制和 BF16 转换</td>
+      <td>Step 6 的主逻辑</td>
+    </tr>
+    <tr>
+      <td><code>include/layers/linear.h</code> / <code>src/layers/linear.cpp</code></td>
+      <td><code>ColumnParallelLinear</code>、<code>RowParallelLinear</code>、<code>QKVParallelLinear</code>、<code>MergedColumnParallelLinear</code></td>
+      <td>处理线性层参数写入</td>
+      <td>packed 权重最终落点</td>
+    </tr>
+    <tr>
+      <td><code>include/layers/embed_head.h</code> / <code>src/layers/embed_head.cpp</code></td>
+      <td><code>VocabParallelEmbedding</code>、<code>ParallelLMHead</code></td>
+      <td>处理 vocab 维权重写入</td>
+      <td>为 tie_word_embeddings 留出接口</td>
+    </tr>
+    <tr>
+      <td><code>tests/test_loader.cpp</code></td>
+      <td>3 个 <code>LoaderTest</code></td>
+      <td>覆盖解析、复制、packed 改名和 BF16 转换</td>
+      <td>当前最直接的行为说明书</td>
+    </tr>
+  </tbody>
+</table>
+
+<pre><code>struct PackedModuleMapping {
+    std::string source_name;
+    std::string target_name;
+    int shard_id = 0;
+};
+
+using ParameterLoadFn = std::function&lt;void(const Tensor&amp; source,
+                                           std::optional&lt;int&gt; shard_id,
+                                           DeviceAllocator&amp; allocator,
+                                           cudaStream_t stream)&gt;;</code></pre>
+
+<ul>
+  <li><code>PackedModuleMapping</code> 只描述源段名、目标段名和 <code>shard_id</code>，不做切片。</li>
+  <li><code>SafeTensorsFile</code> 负责“把文件变成可读取的 Tensor 视图”。</li>
+  <li><code>ParameterRegistry</code> 负责“把目标参数名变成一次具体回调调用”。</li>
+  <li><code>copy_tensor_to_parameter</code> 是最后的闸门，决定什么类型组合允许真的写进参数。</li>
+</ul>
+
+<h2 id="parser">3. SafeTensors 解析流程 <span class="badge badge-parse">SafeTensorsFile::open</span></h2>
+<p class="section-desc">解析器的目标不是把整个文件复制出来，而是构造出一组由 mmap 支持的 CPU Tensor 视图。这样后面的层级 loader 可以直接拿这些视图做 shape 校验、切 shard 和复制。</p>
+
+<pre><code>SafeTensorsFile SafeTensorsFile::open(const std::string&amp; path);</code></pre>
+
+<div class="grid">
+  <div class="card">
+    <h3>读头部</h3>
+    <p>先读取文件前 8 字节的小端 <code>header_size</code>，并确认 header 没有越过文件末尾。</p>
+  </div>
+  <div class="card">
+    <h3>解析 JSON</h3>
+    <p>把 header 文本交给 <code>nlohmann::json</code>，每个非 <code>__metadata__</code> 条目都视为一个 tensor 规格。</p>
+  </div>
+  <div class="card">
+    <h3>托管 payload</h3>
+    <p>用 <code>Memory::make_owned</code> 接管 payload 所在映射区域，让文件映射的生命周期由 Memory 控制，而不是依赖文件描述符存活。</p>
+  </div>
+  <div class="card">
+    <h3>构造 Entry</h3>
+    <p>根据 dtype、shape 和 <code>data_offsets</code> 为每个条目生成 <code>Entry.tensor</code>，最终放入 <code>entries_</code> 索引表。</p>
+  </div>
+</div>
+
+<div class="diagram">open(path)
+  ├── open + fstat
+  ├── mmap entire file
+  ├── header_size = read_le_u64(mapping[0:8])
+  ├── header_json = parse(mapping[8 : 8 + header_size])
+  ├── payload = mapping[8 + header_size : end]
+  ├── data_memory = Memory::make_owned(payload, deleter = munmap(base))
+  └── for each tensor spec:
+        validate dtype / shape / offsets
+        tensor = Tensor::from_memory(data_memory, shape, dtype, element_offset)
+        entries_[name] = Entry{..., tensor}</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>检查项</th>
+      <th>为什么要检查</th>
+      <th>失败时通常意味着什么</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>文件长度至少 8 字节</td>
+      <td>否则连 <code>header_size</code> 都读不出来</td>
+      <td>不是合法 safetensors，或文件损坏</td>
+    </tr>
+    <tr>
+      <td><code>header_size</code> 不越界</td>
+      <td>避免越界解析 JSON</td>
+      <td>头部字段与真实文件长度不一致</td>
+    </tr>
+    <tr>
+      <td>条目必须有 <code>dtype</code> / <code>shape</code> / <code>data_offsets</code></td>
+      <td>这是构造 Tensor 视图的最小信息集</td>
+      <td>header 结构不完整</td>
+    </tr>
+    <tr>
+      <td><code>data_offsets = [begin, end]</code> 且 <code>end &gt;= begin</code></td>
+      <td>保证切片合法</td>
+      <td>header 描述错误</td>
+    </tr>
+    <tr>
+      <td><code>shape × dtype_size == data_size</code></td>
+      <td>确保 shape 与 payload 真正对应</td>
+      <td>权重条目大小不匹配</td>
+    </tr>
+    <tr>
+      <td>偏移按元素字节对齐</td>
+      <td>保证 Tensor 视图起点正确</td>
+      <td>格式生成阶段存在错位</td>
+    </tr>
+  </tbody>
+</table>
+
+<pre><code>supported dtypes in parser
+  F16  -&gt; ScalarType::kFloat16
+  BF16 -&gt; ScalarType::kBFloat16
+  F32  -&gt; ScalarType::kFloat32
+  I32  -&gt; ScalarType::kInt32
+  I64  -&gt; ScalarType::kInt64</code></pre>
+
+<div class="note">这里的“支持 dtype”只表示解析器能识别这些类型，不表示后面的参数复制层一定支持它们写入目标参数。是否能真正加载成功，最终还取决于 <code>copy_tensor_to_parameter</code> 的转换规则。</div>
+
+<h2 id="registry">4. 注册表与 packed 映射 <span class="badge badge-dispatch">ParameterRegistry::load</span></h2>
+<p class="section-desc">ParameterRegistry 的设计重点是把“名字解析”和“层级写入”解耦。它知道如何从目标参数名找到一个回调，但不知道 QKV 内部怎么拼、GateUp 怎么排，也不知道 embedding 是否要和 lm_head 共用逻辑。</p>
+
+<pre><code>void ParameterRegistry::load(const std::string&amp; path,
+                             const std::vector&lt;PackedModuleMapping&gt;&amp; packed_modules_mapping,
+                             DeviceAllocator&amp; allocator,
+                             cudaStream_t stream = nullptr) const;</code></pre>
+
+<table>
+  <thead>
+    <tr>
+      <th>阶段</th>
+      <th>输入</th>
+      <th>输出</th>
+      <th>说明</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>收集文件</td>
+      <td>目录或单文件路径</td>
+      <td>稳定排序的 safetensors 文件列表</td>
+      <td>目录模式下会扫描顶层所有 <code>.safetensors</code></td>
+    </tr>
+    <tr>
+      <td>打开文件</td>
+      <td>单个文件路径</td>
+      <td><code>SafeTensorsFile</code></td>
+      <td>之后按 key 顺序迭代条目</td>
+    </tr>
+    <tr>
+      <td>packed 改名</td>
+      <td>源参数名</td>
+      <td>目标参数名 + 可选 <code>shard_id</code></td>
+      <td>普通权重会原名直通</td>
+    </tr>
+    <tr>
+      <td>注册表查找</td>
+      <td>目标参数名</td>
+      <td>回调函数</td>
+      <td>找不到会直接抛异常</td>
+    </tr>
+    <tr>
+      <td>调用 loader</td>
+      <td>source Tensor、optional <code>shard_id</code></td>
+      <td>参数写入完成</td>
+      <td>真正的形状和 shard 决策在层对象里做</td>
+    </tr>
+  </tbody>
+</table>
+
+<pre><code>registry.register_parameter(
+  "model.layers.0.self_attn.qkv_proj.weight",
+  [&](const Tensor&amp; source,
+      std::optional&lt;int&gt; shard_id,
+      DeviceAllocator&amp; allocator,
+      cudaStream_t stream) {
+    qkv.weight_loader(source, *shard_id, allocator, stream);
+  });</code></pre>
+
+<h3>4.1 packed_modules_mapping 到底做了什么</h3>
+<table>
+  <thead>
+    <tr>
+      <th>HF 源模块段</th>
+      <th>运行时目标模块段</th>
+      <th>shard_id</th>
+      <th>最终含义</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>q_proj</code></td>
+      <td><code>qkv_proj</code></td>
+      <td>0</td>
+      <td>写入 QKV 合并张量中的 Q 区间</td>
+    </tr>
+    <tr>
+      <td><code>k_proj</code></td>
+      <td><code>qkv_proj</code></td>
+      <td>1</td>
+      <td>写入 K 区间</td>
+    </tr>
+    <tr>
+      <td><code>v_proj</code></td>
+      <td><code>qkv_proj</code></td>
+      <td>2</td>
+      <td>写入 V 区间</td>
+    </tr>
+    <tr>
+      <td><code>gate_proj</code></td>
+      <td><code>gate_up_proj</code></td>
+      <td>0</td>
+      <td>写入 MLP 合并张量中的 gate 区间</td>
+    </tr>
+    <tr>
+      <td><code>up_proj</code></td>
+      <td><code>gate_up_proj</code></td>
+      <td>1</td>
+      <td>写入 up 区间</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="diagram">source_name = model.layers.0.self_attn.k_proj.weight
+    │
+    ├── matches mapping "k_proj" -> "qkv_proj", shard_id = 1
+    ▼
+target_name = model.layers.0.self_attn.qkv_proj.weight
+    │
+    ├── registry.find(target_name)
+    ▼
+loader callback for qkv_proj.weight
+    │
+    └── qkv.weight_loader(source_tensor, 1, allocator, stream)</div>
+
+<div class="note">名称匹配不是简单的任意子串替换，而是要求 <code>source_name</code> 落在参数段边界上。这样可以避免把更长名字里的偶然子串误替换掉。</div>
+
+<h2 id="loaders">5. 各层 weight_loader 行为 <span class="badge badge-packed">layer-owned logic</span></h2>
+<p class="section-desc">ParameterRegistry 只负责找到目标层，真正决定 source 是否可接受、如何切 shard、应该写到目标参数哪一段的是各层自己的 loader。这里表里的 <code>output_size</code>、<code>local_output_size</code>、<code>input_size</code>、<code>local_input_size</code> 都是层在构造时已经知道的目标尺寸；loader 只是拿 <code>source.sizes()</code> 去和这些已知尺寸做匹配，不是从 source 里“读出语义名”。</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>模块</th>
+      <th>可接受的 source 形状</th>
+      <th>内部动作</th>
+      <th>当前状态</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>ColumnParallelLinear</code></td>
+      <td>weight: 第 1 维必须等于 <code>input_size</code>；第 0 维若等于 <code>output_size</code> 视为完整表，若等于 <code>local_output_size</code> 视为本地 shard<br>bias: 第 0 维若等于 <code>output_size</code> 视为完整表，若等于 <code>local_output_size</code> 视为本地 shard</td>
+      <td>若 <code>source.sizes()[0] == output_size</code>，则沿第 0 维切出本 rank 对应区间；若 <code>source.sizes()[0] == local_output_size</code>，则直接复制</td>
+      <td>支持 weight / bias</td>
+    </tr>
+    <tr>
+      <td><code>RowParallelLinear</code></td>
+      <td>weight: 第 0 维必须等于 <code>output_size</code>；第 1 维若等于 <code>input_size</code> 视为完整表，若等于 <code>local_input_size</code> 视为本地 shard<br>bias: 必须等于 <code>[output_size]</code></td>
+      <td>若 <code>source.sizes()[1] == input_size</code>，则沿第 1 维切输入 shard；若 <code>source.sizes()[1] == local_input_size</code>，则直接复制；bias 不切，直接复制</td>
+      <td>支持 TP 本地 shard 加载；前向阶段返回本 rank partial output</td>
+    </tr>
+    <tr>
+      <td><code>QKVParallelLinear</code></td>
+      <td>直接模式接受已打包形状；packed 模式下 Q 接受全量或 local Q shard，K / V 接受全量或 local KV shard</td>
+      <td>先选 source shard，再把它写到目标权重的 Q / K / V 连续区间</td>
+      <td>支持 weight / bias 两种 packed 重载</td>
+    </tr>
+    <tr>
+      <td><code>MergedColumnParallelLinear</code></td>
+      <td>直接模式接受总输出维；packed 模式下每个 shard 接受全量或 local shard</td>
+      <td>根据 <code>shard_offsets_</code> 写入 gate / up 对应区间</td>
+      <td>支持 weight / bias 两种 packed 重载</td>
+    </tr>
+    <tr>
+      <td><code>VocabParallelEmbedding</code></td>
+      <td><code>[vocab_size, hidden]</code> 或 <code>[local_vocab_size, hidden]</code></td>
+      <td>若 source 是全 vocab 权重，则按 rank 切 vocab 维</td>
+      <td>支持 TP 本地 vocab shard 加载；前向阶段返回本 rank 的 embedding 贡献</td>
+    </tr>
+    <tr>
+      <td><code>ParallelLMHead</code></td>
+      <td><code>[vocab_size, hidden]</code> 或 <code>[local_vocab_size, hidden]</code></td>
+      <td>逻辑与 embedding 相同，按 vocab 维切本地 shard</td>
+      <td>支持 TP 本地 vocab shard 加载；前向阶段返回本 rank 的 local logits</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="note">换句话说，loader 不是“看 source 自己说我是完整表还是本地表”，而是“把 source.shape 和层构造时保存的 full/local 目标尺寸做比较”。例如 ColumnParallelLinear 判断完整表还是本地 shard，只看第 0 维是等于 <code>output_size_</code> 还是 <code>local_output_size_</code>。</div>
+
+<h3>5.1 QKV 合并布局</h3>
+<pre><code>destination weight shape:
+  [local_q_size + 2 * local_kv_size, hidden_size]
+
+shard_id = 0  -> rows [0, local_q_size)
+shard_id = 1  -> rows [local_q_size, local_q_size + local_kv_size)
+shard_id = 2  -> rows [local_q_size + local_kv_size,
+                       local_q_size + 2 * local_kv_size)</code></pre>
+
+<h3>5.2 GateUp 合并布局</h3>
+<pre><code>output_sizes_       = [gate_size, up_size, ...]
+local_output_sizes_ = [gate_local, up_local, ...]
+shard_offsets_      = prefix sum(local_output_sizes_)
+
+shard_id = i -> rows [shard_offsets_[i],
+                      shard_offsets_[i] + local_output_sizes_[i])</code></pre>
+
+<div class="grid">
+  <div class="card">
+    <h3>ColumnParallelLinear</h3>
+    <p>这类 loader 最简单。source 不是全量就是 local shard，判断依据只有第 0 维大小，最后调用 <code>copy_tensor_to_parameter</code> 即可。</p>
+  </div>
+  <div class="card">
+    <h3>QKVParallelLinear</h3>
+    <p>它的关键点不是名字映射，而是 destination 的三段布局固定。q / k / v 的权重最终都会落进同一个目标 Tensor，只是写入的行区间不同。</p>
+  </div>
+  <div class="card">
+    <h3>MergedColumnParallelLinear</h3>
+    <p>和 QKV 类似，但它不是固定三段，而是由 <code>output_sizes_</code> 和 <code>shard_offsets_</code> 决定每段区间，因此更适合泛化的 gate / up 合并场景。</p>
+  </div>
+  <div class="card">
+    <h3>Embedding / LM Head</h3>
+    <p>这两类都是 vocab 维切分问题。接口本来就是按本地 vocab shard 设计的；现在加载与前向都能直接工作在 TP 本地 shard 语义上，只是最终的 all-reduce / gather 仍属于更上层的通信阶段。</p>
+  </div>
+</div>
+
+<h2 id="copy">6. 类型转换与复制规则 <span class="badge badge-dispatch">copy_tensor_to_parameter</span></h2>
+<p class="section-desc">解析器只负责把文件里的字节描述成 Tensor，真正决定“这份 Tensor 能不能进参数”的，是 <code>copy_tensor_to_parameter</code>。它先检查 defined、destination contiguous、shape 一致，再判断 dtype 组合是否被允许；如果 source 是 CPU 上的非连续 view，会先 materialize 成连续 host buffer，再执行复制或类型转换。</p>
+
+<pre><code>void copy_tensor_to_parameter(const Tensor&amp; source,
+                              const Tensor&amp; destination,
+                              DeviceAllocator&amp; allocator,
+                              cudaStream_t stream = nullptr);</code></pre>
+
+<table>
+  <thead>
+    <tr>
+      <th>源张量</th>
+      <th>目标张量</th>
+      <th>当前行为</th>
+      <th>为什么</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>CPU + 同 dtype</td>
+      <td>CPU</td>
+      <td>连续 source 直接 <code>memcpy</code>；非连续 source 先 materialize 再复制</td>
+      <td>允许 loader 直接消费 slice/view 形式的 CPU shard</td>
+    </tr>
+    <tr>
+      <td>CPU + 同 dtype</td>
+      <td>CUDA</td>
+      <td>连续 source 直接设备复制；非连续 source 先 materialize 成连续 host buffer，再走 <code>DeviceAllocator::copy_to_device_async</code></td>
+      <td>像 RowParallelLinear 这种按输入维切 shard 的场景，source 常常是非连续 view</td>
+    </tr>
+    <tr>
+      <td>CPU BF16</td>
+      <td>CPU float32</td>
+      <td>先转成临时 <code>std::vector&lt;float&gt;</code>，再复制</td>
+      <td>这是当前 Step 6 的核心转换路径</td>
+    </tr>
+    <tr>
+      <td>CPU BF16</td>
+      <td>CUDA float32</td>
+      <td>先转成临时 float buffer，再拷到设备端</td>
+      <td>与现有 float32 参数实现对齐</td>
+    </tr>
+    <tr>
+      <td>其他组合</td>
+      <td>任意</td>
+      <td>直接抛异常</td>
+      <td>当前没有对应转换逻辑和测试保证</td>
+    </tr>
+  </tbody>
+</table>
+
+<pre><code>if source.dtype() == destination.dtype():
+    copy_same_dtype_tensor(...)
+else if source.dtype() == ScalarType::kBFloat16 &amp;&amp;
+        destination.dtype() == ScalarType::kFloat32:
+    converted = convert_bfloat16_to_float32(...)
+    copy converted to destination
+else:
+    throw unsupported conversion</code></pre>
+
+<h3>6.1 BF16 到 float32 的位级扩展</h3>
+<pre><code>uint32_t bits = static_cast&lt;uint32_t&gt;(bf16_value) &lt;&lt; 16;
+float out = 0.0f;
+std::memcpy(&amp;out, &amp;bits, sizeof(out));</code></pre>
+
+<p>这里的含义是：BF16 保留了 float32 的高 16 位，把它左移回 float32 的高位后，低 16 位尾数补零，就得到了与原 BF16 数值等价的 float32 表示。这是目前实现中最需要、也最稳定的一条转换路径。</p>
+
+<div class="note">当前复制实现要求 source 和 destination 都是 contiguous。如果某个上层切片返回了非连续 view，这里会直接拒绝，而不是偷偷做一次隐式整理。</div>
+
+<div class="danger">当前实现不支持 GPU 源张量，也不支持 float16 到 float32、int 到 float、或任意 dtype 间的通用转换。换句话说，Step 6 解决的是“现有仓库需要的最小可用路径”，不是通用 Tensor 转换器。</div>
+
+<h2 id="example">7. 端到端 packed 示例 <span class="badge badge-packed">tests/test_loader.cpp</span></h2>
+<p class="section-desc">只看抽象规则不够直观。下面用测试里的合成 safetensors 样例，把一组 HF 风格名字如何最终落到合并参数上完整走一遍。</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>源名字</th>
+      <th>源 shape</th>
+      <th>映射后目标名</th>
+      <th>shard_id</th>
+      <th>最终写入位置</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>model.layers.0.self_attn.q_proj.weight</code></td>
+      <td><code>[2, 2]</code></td>
+      <td><code>model.layers.0.self_attn.qkv_proj.weight</code></td>
+      <td>0</td>
+      <td>QKV 权重前 2 行</td>
+    </tr>
+    <tr>
+      <td><code>model.layers.0.self_attn.k_proj.weight</code></td>
+      <td><code>[1, 2]</code></td>
+      <td><code>model.layers.0.self_attn.qkv_proj.weight</code></td>
+      <td>1</td>
+      <td>QKV 权重中间 1 行</td>
+    </tr>
+    <tr>
+      <td><code>model.layers.0.self_attn.v_proj.weight</code></td>
+      <td><code>[1, 2]</code></td>
+      <td><code>model.layers.0.self_attn.qkv_proj.weight</code></td>
+      <td>2</td>
+      <td>QKV 权重最后 1 行</td>
+    </tr>
+    <tr>
+      <td><code>model.layers.0.mlp.gate_proj.weight</code></td>
+      <td><code>[1, 2]</code></td>
+      <td><code>model.layers.0.mlp.gate_up_proj.weight</code></td>
+      <td>0</td>
+      <td>GateUp 权重前半区间</td>
+    </tr>
+    <tr>
+      <td><code>model.layers.0.mlp.up_proj.weight</code></td>
+      <td><code>[2, 2]</code></td>
+      <td><code>model.layers.0.mlp.gate_up_proj.weight</code></td>
+      <td>1</td>
+      <td>GateUp 权重后半区间</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="diagram">synthetic BF16 weights
+  q_proj = [[1, 2],
+            [3, 4]]
+  k_proj = [[5, 6]]
+  v_proj = [[7, 8]]
+
+after registry.load(...):
+  qkv_proj.weight = [[1, 2],
+                     [3, 4],
+                     [5, 6],
+                     [7, 8]]
+
+  gate_proj = [[ 9, 10]]
+  up_proj   = [[11, 12],
+               [13, 14]]
+
+  gate_up_proj.weight = [[ 9, 10],
+                         [11, 12],
+                         [13, 14]]</div>
+
+<p>同一个测试还顺带证明了一点：embedding 和 lm_head 也可以通过同一条注册表通道被喂入同一份 source Tensor。当前测试里它们是各自复制一份；后续如果启用 <code>tie_word_embeddings</code>，这条路径也可以很自然地变成权重共享。</p>
+
+<h2 id="errors">8. 错误路径与调试顺序</h2>
+<p class="section-desc">这套加载器当前选择的是严格失败策略，不会静默跳过未知参数或可疑 shape。所以文档必须把常见异常来源写清楚，不然排查时会很慢。</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>阶段</th>
+      <th>常见触发条件</th>
+      <th>代表了什么问题</th>
+      <th>建议先检查什么</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>collect_safetensors_files</td>
+      <td>路径不是目录也不是 <code>.safetensors</code> 文件</td>
+      <td>输入路径本身就不满足加载前提</td>
+      <td>模型目录、后缀名、目录层级</td>
+    </tr>
+    <tr>
+      <td>SafeTensorsFile::open</td>
+      <td>header 越界、JSON 非对象、offset 越界、shape 不匹配</td>
+      <td>文件格式不合法或文件损坏</td>
+      <td>源 safetensors 是否完整、是否真由标准工具导出</td>
+    </tr>
+    <tr>
+      <td>resolve_packed_parameter_name</td>
+      <td>没有命中任何 packed 映射</td>
+      <td>这不是异常，说明条目按原名继续</td>
+      <td>确认该参数是否本来就不需要 packed</td>
+    </tr>
+    <tr>
+      <td>ParameterRegistry::load</td>
+      <td>目标参数名未注册</td>
+      <td>真实模型参数名与权重名字没有对齐</td>
+      <td>模块前缀、层号、packed 重命名结果</td>
+    </tr>
+    <tr>
+      <td>layer weight_loader</td>
+      <td>rank / shape / shard_id 不合法</td>
+      <td>条目名字对上了，但布局规则没对上</td>
+      <td>full 尺寸、local 尺寸、tp_size、rank</td>
+    </tr>
+    <tr>
+      <td>copy_tensor_to_parameter</td>
+      <td>未定义、非 contiguous、shape 不一致、dtype 不支持</td>
+      <td>最终写入条件不满足</td>
+      <td>source 是否仍是连续 view，目标参数是否已初始化</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="note">调试顺序建议：先看失败发生在“名字找不到”还是“shape 不合法”，最后才看“复制失败”。早期实现里大多数问题并不在 CUDA 复制，而在参数命名和 shard 维度理解不一致。</div>
+
+<div class="danger">当前实现不会“尽量加载能加载的部分”。只要某个条目找不到注册项，或者某个 loader 判断 shape 不对，整个 <code>load</code> 调用就会立刻失败。这是有意设计，因为在模型尚未装配完成的阶段，快速暴露第一处偏差比静默吞错更有价值。</div>
+
+<h2 id="tests">9. 测试覆盖与讲解角度</h2>
+<p class="section-desc">目前的测试不是大而全的集成验证，而是把 Step 6 需要保证的几个关键点拆开做最小闭环。这样每个失败都更容易定位。</p>
+
+<div class="grid">
+  <div class="card">
+    <h3>SafeTensorsParserExposesCpuTensorViews</h3>
+    <p>验证 safetensors 文件可以被解析成正确的 CPU Tensor 视图，包括 keys、dtype、shape 和底层值。</p>
+  </div>
+  <div class="card">
+    <h3>BaseLinearWeightLoadersCopyFromCpuTensors</h3>
+    <p>验证 ColumnParallelLinear 和 RowParallelLinear 可以接受 CPU float32 source，并把值准确写进设备侧参数。</p>
+  </div>
+  <div class="card">
+    <h3>ParameterRegistryLoadsPackedBfloat16Weights</h3>
+    <p>验证 packed 改名、optional shard_id、QKV / GateUp 合并写入、embedding / lm_head 加载以及 BF16 到 float32 转换能联动成立。</p>
+  </div>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>测试名</th>
+      <th>证明了什么</th>
+      <th>没有证明什么</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>SafeTensorsParserExposesCpuTensorViews</code></td>
+      <td>解析器能把合法文件变成正确的 Tensor 视图</td>
+      <td>没有覆盖各种非法文件和多目录层级</td>
+    </tr>
+    <tr>
+      <td><code>BaseLinearWeightLoadersCopyFromCpuTensors</code></td>
+      <td>基础参数复制链路可用</td>
+      <td>没有覆盖 TP &gt; 1 和非连续输入</td>
+    </tr>
+    <tr>
+      <td><code>ParameterRegistryLoadsPackedBfloat16Weights</code></td>
+      <td>当前最重要的 packed + BF16 路径可用</td>
+      <td>没有覆盖真实 Qwen3-0.6B 整模加载</td>
+    </tr>
+  </tbody>
+</table>
+
+<pre><code>验证命令
+  cmake -S . -B build
+  cmake --build build -j4
+  ctest --test-dir build --output-on-failure</code></pre>
+
+<div class="note">当前仓库里，VS Code 的 CMake Tools 集成配置不稳定；可信的验证路径仍然是终端里的 <code>cmake</code> 和 <code>ctest</code>。这一点已经在 Step 6 的实际验证中确认过。</div>
+
+<h2 id="limits">10. 当前限制与下一步</h2>
+<p class="section-desc">把边界说清楚，比在文档里假装“什么都支持”更有价值。下面这些不是偶然缺口，而是当前 Step 6 明确尚未覆盖的范围。</p>
+
+<ul>
+  <li><code>ParameterRegistry</code> 目前还是通用分发层，真实 Qwen3 参数树尚未在模型类中注册。</li>
+  <li><code>copy_tensor_to_parameter</code> 目前只支持 CPU source，转换路径只覆盖 BF16 到 float32。</li>
+  <li><code>RowParallelLinear</code>、<code>VocabParallelEmbedding</code>、<code>ParallelLMHead</code> 已支持 TP 本地 shard 语义；真正的多卡 all-reduce / gather 仍属于后续模型装配与通信层工作。</li>
+  <li>加载阶段对每次设备复制都会同步流，行为正确，但还不是最终高性能形态。</li>
+  <li>缺少“加载真实 Qwen3-0.6B 并打印每层 sum / mean 与 Python 对比”的集成验证。</li>
+</ul>
+
+<div class="diagram">Step 6 已完成的边界
+  SafeTensors file
+    -> CPU Tensor views
+    -> packed name remap
+    -> registry dispatch
+    -> layer-owned shard selection
+    -> BF16 -> float32 copy
+    -> CUDA parameters
+
+Step 7 要承接的边界
+  real Qwen3 module tree
+    -> register every parameter name
+    -> connect packed mapping to actual model hierarchy
+    -> run real forward and compare logits</div>
+
+<div class="note">最合理的下一步不是继续把 loader 层做得更花，而是直接在 Step 7 的模型组装里复用这套接口，把真实参数名注册到 <code>Qwen3Attention</code>、<code>Qwen3MLP</code>、<code>Qwen3Model</code>、<code>Qwen3ForCausalLM</code> 上。</div>
+
+<footer>
+  文档对应实现文件：include/utils/loader.h、src/utils/loader.cpp、include/layers/linear.h、src/layers/linear.cpp、include/layers/embed_head.h、src/layers/embed_head.cpp、tests/test_loader.cpp
+</footer>
+
+</body>
+</html>

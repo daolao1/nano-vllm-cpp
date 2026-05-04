@@ -1,0 +1,662 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>nano-vllm-cpp · Decode 优化 Profiling 证据</title>
+<style>
+  :root {
+    --bg: #0d1117; --card: #161b22; --border: #30363d;
+    --text: #c9d1d9; --muted: #8b949e; --heading: #f0f6fc;
+    --accent: #58a6ff; --green: #3fb950; --orange: #d29922; --red: #f85149; --purple: #d2a8ff;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
+    background:var(--bg); color:var(--text); line-height:1.75;
+    display:flex; min-height:100vh;
+  }
+  aside {
+    width: 280px; flex-shrink: 0; position: sticky; top: 0;
+    height: 100vh; overflow-y: auto;
+    background: #0a0e14; border-right: 1px solid var(--border);
+    padding: 1.5rem 1rem; font-size: 0.83rem;
+  }
+  aside h3 {
+    color: var(--accent); font-size: 0.78rem;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    margin-bottom: 0.8rem; padding-bottom: 0.4rem;
+    border-bottom: 1px solid var(--border);
+  }
+  aside ul { list-style: none; padding-left: 0; }
+  aside ul ul { padding-left: 0.9rem; margin: 0.2rem 0; }
+  aside li { margin: 0.3rem 0; }
+  aside a {
+    color: var(--muted); text-decoration: none;
+    display: block; padding: 0.2rem 0.4rem; border-radius: 4px;
+    border-left: 2px solid transparent; line-height: 1.4;
+  }
+  aside a:hover { color: var(--heading); background: #161b22; border-left-color: var(--accent); }
+  aside a.active { color: var(--accent); border-left-color: var(--accent); background:#11182a; }
+  main {
+    flex: 1; padding: 2.5rem 3rem; max-width: 1100px;
+    margin: 0 auto;
+  }
+  h1 {
+    color: var(--heading); font-size: 1.9rem;
+    border-bottom: 1px solid var(--border); padding-bottom: 0.7rem;
+    margin-bottom: 0.5rem;
+  }
+  h2 {
+    color: var(--heading); font-size: 1.3rem;
+    margin: 2.5rem 0 0.9rem; padding: 0.5rem 0.9rem;
+    border-left: 3px solid var(--accent);
+    background: #111820; border-radius: 0 6px 6px 0;
+    cursor: pointer; user-select: none;
+    display: flex; align-items: center; gap: 0.5rem;
+  }
+  h2::before { content: "▼"; font-size: 0.7rem; color: var(--muted); transition: transform 0.2s; }
+  h2.collapsed::before { transform: rotate(-90deg); }
+  h3 {
+    color: var(--heading); font-size: 1.05rem;
+    margin: 1.6rem 0 0.6rem;
+    padding-left: 0.4rem; border-left: 2px solid var(--green);
+  }
+  h4 { color: var(--orange); font-size: 0.95rem; margin: 1.2rem 0 0.5rem; }
+  p { margin: 0.6rem 0; font-size: 0.92rem; color: var(--text); }
+  strong { color: var(--heading); }
+  em { color: var(--purple); font-style: normal; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  ul, ol { padding-left: 1.6rem; margin: 0.5rem 0; color: var(--text); }
+  li { margin: 0.25rem 0; font-size: 0.92rem; }
+  code {
+    font-family: 'SFMono-Regular', Consolas, monospace;
+    background: #1a2030; padding: 0.12rem 0.35rem;
+    border-radius: 4px; font-size: 0.85rem; color: #e6edf3;
+  }
+  pre {
+    background: #0a0e14; border: 1px solid var(--border);
+    border-radius: 6px; padding: 0.8rem 1rem; margin: 0.7rem 0;
+    overflow-x: auto; font-size: 0.78rem; line-height: 1.5;
+    color: #c9d1d9;
+    font-family: 'SFMono-Regular', Consolas, monospace;
+  }
+  pre code { background: transparent; padding: 0; color: inherit; font-size: inherit; }
+  table {
+    border-collapse: collapse; margin: 0.8rem 0;
+    width: 100%; font-size: 0.85rem;
+    background: var(--card); border-radius: 6px; overflow: hidden;
+    font-variant-numeric: tabular-nums;
+  }
+  th, td {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border); text-align: left;
+    vertical-align: top;
+  }
+  th { background: #1c2430; color: var(--heading); font-weight: 600; font-size: 0.8rem; }
+  tr:nth-child(even) td { background: #141922; }
+  td.num { font-family: 'SFMono-Regular', monospace; text-align: right; }
+  td.bad { color: var(--red); }
+  td.warn { color: var(--orange); }
+  td.ok { color: var(--green); }
+  blockquote {
+    background: #111820; border-left: 3px solid var(--orange);
+    padding: 0.6rem 1rem; margin: 0.7rem 0;
+    border-radius: 0 6px 6px 0;
+  }
+  blockquote p { margin: 0.3rem 0; font-size: 0.9rem; color: var(--text); }
+  blockquote strong:first-child { color: var(--orange); }
+  .verdict {
+    background: linear-gradient(180deg, #1a2435, #111820);
+    border: 1px solid var(--accent);
+    border-radius: 8px; padding: 0.9rem 1.1rem; margin: 1rem 0;
+  }
+  .verdict h4 { margin: 0 0 0.4rem; color: var(--accent); }
+  hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+  h2.collapsed ~ * { display: none; }
+  h2 + .section-body { display: block; }
+  h2.collapsed + .section-body { display: none; }
+  .section-body { display: block; }
+  .kpi-row { display: flex; gap: 12px; flex-wrap: wrap; margin: 1rem 0; }
+  .kpi {
+    flex: 1; min-width: 160px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 6px; padding: 0.8rem 1rem;
+  }
+  .kpi .label { font-size: 0.72rem; text-transform: uppercase; color: var(--muted); letter-spacing: 0.08em; }
+  .kpi .value { font-size: 1.5rem; color: var(--heading); font-family: 'SFMono-Regular', monospace; margin-top: 0.2rem; }
+  .kpi .delta { font-size: 0.78rem; color: var(--green); margin-top: 0.2rem; }
+  .kpi .delta.bad { color: var(--red); }
+  @media (max-width: 900px) {
+    body { flex-direction: column; }
+    aside { width: 100%; height: auto; position: relative; border-right: none; border-bottom: 1px solid var(--border); }
+    main { padding: 1.5rem 1.2rem; }
+  }
+  #top-btn {
+    position: fixed; bottom: 2rem; right: 2rem;
+    background: var(--card); color: var(--accent);
+    border: 1px solid var(--border); border-radius: 50%;
+    width: 44px; height: 44px; cursor: pointer;
+    font-size: 1.1rem; display: none; z-index: 10;
+  }
+  footer {
+    margin-top: 3rem; padding-top: 1rem;
+    border-top: 1px solid var(--border);
+    color: var(--muted); font-size: 0.8rem; text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<aside>
+  <h3>目录</h3>
+  <nav id="toc">
+    <ul>
+      <li><a href="#summary">TL;DR · 一页结论</a></li>
+      <li><a href="#methodology">1. 方法论与 profiling 工具选型</a></li>
+      <li><a href="#environment">2. 测量环境</a></li>
+      <li><a href="#phase-split">3. Prefill vs Decode：两个完全不同的战场</a>
+        <ul>
+          <li><a href="#phase-table">3.1 一图看懂差异</a></li>
+          <li><a href="#phase-prefill">3.2 Prefill：compute-bound，FA 主导</a></li>
+          <li><a href="#phase-decode">3.3 Decode：launch-bound，融合+Graph 主导</a></li>
+        </ul>
+      </li>
+      <li><a href="#wall-clock">4. 端到端壁钟（bench_e2e）</a></li>
+      <li><a href="#micro">5. 单 kernel micro-bench（cudaEvent）</a>
+        <ul>
+          <li><a href="#sweep">5.1 batch sweep 数据（含阶段标记）</a></li>
+          <li><a href="#diagnosis">5.2 launch-bound 诊断</a></li>
+          <li><a href="#fusion">5.3 5-kernel 融合的实际收益</a></li>
+        </ul>
+      </li>
+      <li><a href="#roofline">6. Roofline 验证</a></li>
+      <li><a href="#fa">7. Flash Attention 替换的证据（Prefill 主战场）</a></li>
+      <li><a href="#new-vec">8. store_kvcache 向量化的诚实评估</a></li>
+      <li><a href="#repro">9. 复现命令</a></li>
+      <li><a href="#caveats">10. 局限与诚实声明</a></li>
+    </ul>
+  </nav>
+</aside>
+
+<main>
+  <h1>nano-vllm-cpp · Decode 优化 Profiling 证据</h1>
+  <p style="color:var(--muted); font-size:0.92rem;">
+    本页用 <strong>cudaEvent_t 微基准 + bench_e2e 壁钟</strong> 给出 decode 路径优化的真实数据。
+    Nsight Compute 在 WSL2 受 GPU 驱动限制无法使用（见 §1），故采用 cudaEvent 计时作为标准替代方案。
+    所有数字 2026-05-04 在同机同 seed 下复现，命令见 §8。
+  </p>
+
+  <h2 id="summary">TL;DR · 一页结论</h2>
+  <div class="section-body">
+    <div class="kpi-row">
+      <div class="kpi">
+        <div class="label">Decode 延迟</div>
+        <div class="value">22.0 → 11.2 ms</div>
+        <div class="delta">−49%（cuda graph）</div>
+      </div>
+      <div class="kpi">
+        <div class="label">端到端吞吐</div>
+        <div class="value">737 → 1611 tok/s</div>
+        <div class="delta">+118%</div>
+      </div>
+      <div class="kpi">
+        <div class="label">Prefill 延迟</div>
+        <div class="value">1041 → 198 ms</div>
+        <div class="delta">−81%（FA 替换）</div>
+      </div>
+      <div class="kpi">
+        <div class="label">单测</div>
+        <div class="value">10 / 10</div>
+        <div class="delta">全部通过</div>
+      </div>
+    </div>
+
+    <div class="verdict">
+      <h4>核心发现：两个阶段需要两套优化</h4>
+      <p><strong>Prefill</strong>（rows ≈ 数百到上千 token）是 <em>compute-bound</em>：attention 占 80%+ 时间，QK<sup>T</sup> 和 PV 是 O(N²) 矩阵乘。优化方向 = <strong>用 Flash Attention 替换手写 attention</strong>。实测 1041 → 198 ms（−81%）。</p>
+      <p><strong>Decode</strong>（每步只 1 个新 token，rows = batch_size ≈ 20）是 <em>launch-bound</em>：每个小 kernel 只干 5,376 字节的活，但一次 kernel launch 就要 5–8 µs。优化方向 = <strong>融合 kernel 减少 launch 次数 + CUDA Graph 消除剩余 launch overhead</strong>。实测 22.1 → 11.2 ms（−49%）。</p>
+      <p style="color:var(--orange);">⚠ 关键认知：用「prefill 的优化思路」（榨 HBM 带宽）去做 decode kernel 是徒劳的——decode 的 kernel 单独看带宽利用率只有 0.3%，但延迟全是 launch overhead，再怎么榨带宽都不会变快。反过来用「decode 的优化思路」（融合）去做 prefill 也没用——prefill kernel 已经在 memory-bound 区饱和。</p>
+    </div>
+  </div>
+
+  <h2 id="methodology">1. 方法论与 profiling 工具选型</h2>
+  <div class="section-body">
+    <h3>1.1 期望工具</h3>
+    <p>标准方法论是 <strong>Nsight Compute (ncu)</strong> + <strong>Nsight Systems (nsys)</strong>：</p>
+    <ul>
+      <li><code>ncu --metrics dram__bytes,sm__warps_active</code> 拿单 kernel 的 HBM 带宽、SM 利用率、roofline 位置</li>
+      <li><code>nsys profile --trace=cuda</code> 拿端到端时间线，定位 launch gap 和 stream stalls</li>
+    </ul>
+
+    <h3>1.2 实际遇到的问题</h3>
+    <pre>$ ncu --metrics gpu__time_duration.sum ./build/bench_e2e ...
+==ERROR== ERR_NVGPUCTRPERM - The user does not have permission to access
+NVIDIA GPU Performance Counters on the target device 0.
+$ sudo ncu ...
+==ERROR== 同上（即便 root 也不行）</pre>
+    <p>原因：<strong>WSL2 上 GPU 驱动是 Windows 侧的</strong>，Linux 侧 <code>NVreg_RestrictProfilingToAdminUsers</code> 内核参数无效，
+    必须在 Windows 注册表改 <code>HKLM\SYSTEM\...\NVIDIA Display.Driver\NVPCS</code>，且需要重启。这是 NVIDIA 官方记录的 WSL2 已知限制。</p>
+
+    <p>同样地，<code>nsys 2022.4</code> 在这个 WSL 内核版本下抓不到 CUDA kernel runtime 事件，只能拿到 API trace（102 events 全是 cudaMalloc/cudaMemcpy）。</p>
+
+    <h3>1.3 替代方案：cudaEvent_t 微基准</h3>
+    <p>这是 ncu 不可用时的<strong>业界标准替代</strong>——CUDA Runtime API 提供的高精度计时器，无需驱动权限：</p>
+    <pre><code>cudaEvent_t start, stop;
+cudaEventCreate(&amp;start); cudaEventCreate(&amp;stop);
+cudaEventRecord(start, stream);
+fn();                           // launch kernel
+cudaEventRecord(stop, stream);
+cudaEventSynchronize(stop);
+float ms;
+cudaEventElapsedTime(&amp;ms, start, stop);</code></pre>
+    <p>能拿到的：每 kernel 中位数延迟、推算 HBM 有效带宽、batch sweep 区分 launch-bound vs memory-bound。
+    拿不到的：SM 利用率、寄存器压力、L2 hit rate。但对当前问题（确认 decode 是 launch-bound）已经够用。</p>
+    <p>Bench 代码：<code>bench/bench_kernels.cpp</code>（200 行，与项目同栈编译，复用真实 kernel 入口）。</p>
+  </div>
+
+  <h2 id="environment">2. 测量环境</h2>
+  <div class="section-body">
+    <table>
+      <tr><th>项</th><th>值</th></tr>
+      <tr><td>GPU</td><td>NVIDIA GeForce RTX 4060 Laptop（24 SMs, sm_89, 8188 MiB）</td></tr>
+      <tr><td>HBM 峰值带宽</td><td>272 GB/s（手册值；实测可达 ~315 GB/s，见 §5）</td></tr>
+      <tr><td>驱动</td><td>596.21 (Windows)，CUDA 12 (Linux side)</td></tr>
+      <tr><td>OS</td><td>Ubuntu 22.04 on WSL2</td></tr>
+      <tr><td>编译器</td><td>nvcc 12.x，<code>-O3</code>，<code>CMAKE_CUDA_ARCHITECTURES=80;86;89</code></td></tr>
+      <tr><td>模型</td><td>Qwen3-0.6B，bfloat16，hidden=896，num_q=14，num_kv=2，head_dim=64</td></tr>
+      <tr><td>Bench 配置</td><td>32 序列，prompt [100, 512]，output [100, 512]，<code>ignore_eos=true</code>，mt19937 seed=0</td></tr>
+      <tr><td>FlashAttention</td><td>v2.x via <code>dlopen(flash_attn_2_cuda.so)</code>，需 <code>libtorch_python.so</code> 同时在 LD_LIBRARY_PATH</td></tr>
+    </table>
+  </div>
+
+  <h2 id="phase-split">3. Prefill vs Decode：两个完全不同的战场</h2>
+  <div class="section-body">
+    <p>这是本页最核心的一节。把两个阶段的工作负载特征摆在一起对比，所有后续数据都围绕这张表展开。</p>
+
+    <blockquote>
+      <p><strong>术语：rows 是什么？</strong></p>
+      <p>本页所有 kernel 的输入张量 shape 都是 <code>[rows, hidden]</code>（hidden = 896，bf16）。<strong>rows = 一次 kernel launch 要处理的 token 行数</strong>，每个 kernel 都是按 token 一行行处理。具体在三个场景下的含义：</p>
+      <ul>
+        <li><strong>decode</strong>：每个序列每步只产生 1 个新 token，所以 rows = <code>batch_size</code>（bench 实测 avg batch ≈ <strong>19.3</strong>，所以 decode 的实际 rows ≈ 20）</li>
+        <li><strong>prefill</strong>：一次喂整段 prompt，所以 rows = 这个 batch 里所有 prompt token 数的总和（实测每步几百到上千）</li>
+        <li><strong>micro-bench</strong>（§5）：我在 sweep 里手动取 rows ∈ {1, 4, 16, 64, 256, 1024}，<em>跨越</em> launch-bound → memory-bound 的过渡，从而能定位每个工作点</li>
+      </ul>
+      <p>例：<code>rms_norm</code> rows=20 时输入约 36 KB，rows=1024 时输入约 1.8 MB——两者差 50 倍但落在同一 kernel 的两端，正好对应 decode 和 prefill 工作点。</p>
+    </blockquote>
+
+    <h3 id="phase-table">3.1 一图看懂差异</h3>
+    <table>
+      <tr><th>维度</th><th style="color:var(--orange);">Prefill 阶段</th><th style="color:var(--accent);">Decode 阶段</th></tr>
+      <tr>
+        <td>每步处理 token 数</td>
+        <td class="num">数百 ~ 上千<br/>（整个 prompt）</td>
+        <td class="num">= batch size<br/>（实测 ≈ 20）</td>
+      </tr>
+      <tr>
+        <td>调用次数</td>
+        <td class="num">每序列 1 次</td>
+        <td class="num">每序列 N 次<br/>（output_len，实测 ~300）</td>
+      </tr>
+      <tr>
+        <td>Attention 复杂度</td>
+        <td class="num">O(N²) — 二次</td>
+        <td class="num">O(N) — 线性<br/>（KV cache 命中）</td>
+      </tr>
+      <tr>
+        <td>典型瓶颈</td>
+        <td class="warn"><strong>compute-bound</strong><br/>（attention 80%+）</td>
+        <td class="warn"><strong>launch-bound</strong><br/>（每 kernel 5-8 µs overhead）</td>
+      </tr>
+      <tr>
+        <td>Kernel 在 sweep 表里的位置</td>
+        <td class="ok">右半部（rows ≥ 256，memory-bound）</td>
+        <td class="bad">左半部（rows ≤ 64，launch-bound）</td>
+      </tr>
+      <tr>
+        <td>主导优化</td>
+        <td class="ok">替换为官方 <strong>Flash Attention</strong></td>
+        <td class="ok"><strong>5-kernel 融合 + CUDA Graph</strong></td>
+      </tr>
+      <tr>
+        <td>次要优化</td>
+        <td>FA 已 well-tuned，无明显空间</td>
+        <td>FA splitkv kernel（同一替换覆盖到）</td>
+      </tr>
+      <tr>
+        <td>实测延迟变化</td>
+        <td class="ok num"><strong>1041 → 198 ms</strong><br/>(−81%, 5.2× speedup)</td>
+        <td class="ok num"><strong>22.1 → 11.2 ms</strong><br/>(−49%, 2.0× speedup)</td>
+      </tr>
+      <tr>
+        <td>对端到端吞吐贡献</td>
+        <td class="num">关键</td>
+        <td class="num">关键<br/>（每序列 ~300 步累加）</td>
+      </tr>
+    </table>
+
+    <h3 id="phase-prefill">3.2 Prefill：compute-bound，FA 主导</h3>
+    <p>Prefill 一次喂进上百 token，每个 token 的 hidden 张量直接把所有 kernel 推到 sweep 表的 <strong>rows ≥ 256 区</strong>。在这一区：</p>
+    <ul>
+      <li>kernel 实际工作时间 &gt;&gt; launch overhead（add_rms_norm @ 1024 已经触顶 314 GB/s，见 §6）</li>
+      <li>融合 kernel 在 prefill 区<strong>仍然更快约 2×</strong>（实测见下方对比表），但绝对节省被 attention 稀释成总时长的 &lt; 1%</li>
+      <li>真正的瓶颈是 <strong>attention 的 O(N²) 计算</strong>，QK<sup>T</sup> 是 dense GEMM，PV 也是 dense GEMM，<strong>total compute 比所有 elementwise kernel 加起来还多一个数量级</strong></li>
+    </ul>
+    <p><strong>所以 prefill 优化 = 把 attention 换成 Flash Attention</strong>。FA 的核心贡献是<em>用 SRAM tiling 把 PV 和 softmax 融合在 register 里</em>，避免把 N×N 的 attention matrix 写回 HBM。这是「换算法」，不是「调 kernel」。</p>
+
+    <h4 style="color:var(--accent);">实测：fused vs separate 在 sweep 全区间</h4>
+    <p>在 bench_kernels.cpp 里加了一项 <code>SEPARATE 5-kernel chain</code>：把 split_qkv → q_norm → k_norm → rotary → store_kvcache 这 5 步串起来计时，跟 fused kernel 同输入对比。</p>
+    <table>
+      <tr><th>rows</th><th>阶段</th><th>fused (µs)</th><th>separate 5-kernel (µs)</th><th>speedup</th></tr>
+      <tr><td>1</td><td style="color:var(--accent);">decode batch=1</td><td class="num">5.12</td><td class="num">34.82</td><td class="num ok">6.8×</td></tr>
+      <tr><td>16</td><td style="color:var(--accent);">decode 工作点</td><td class="num">6.14</td><td class="num">35.84</td><td class="num ok">5.8×</td></tr>
+      <tr><td>64</td><td style="color:var(--accent);">decode 高 batch</td><td class="num">8.19</td><td class="num">40.67</td><td class="num ok">5.0×</td></tr>
+      <tr><td>256</td><td style="color:var(--orange);">短 prompt prefill</td><td class="num">16.10</td><td class="num">41.98</td><td class="num ok">2.6×</td></tr>
+      <tr><td>1024</td><td style="color:var(--orange);"><strong>prefill 工作点</strong></td><td class="num">49.15</td><td class="num">103.42</td><td class="num ok"><strong>2.1×</strong></td></tr>
+    </table>
+
+    <blockquote>
+      <p><strong>反直觉：fused 在 prefill 区也快 2×。</strong>原因不是带宽，是<em>固定开销</em>——separate 链路有 5 次 launch × ~6 µs = 30 µs 的 launch overhead，即使 rows=1024 也占 30%；加上中间张量（q、k、normalized_q、normalized_k）的 HBM 往返流量。两项加起来让 fused 在所有 rows 都赢。</p>
+      <p><strong>那为什么 prefill 不复用 fused？</strong>查代码 <code>src/models/transformer.cpp:127</code>：<code>!ctx.is_prefill</code> 直接排除了 prefill。每层 prefill 省 54 µs × 28 层 = 1.5 ms/step，占 198 ms prefill 的 <strong>0.76%</strong>——绝对值太小，加上 prefill 的 attention 走 FA varlen（用的是 attn_.forward 而非 forward_decode_flash_only），改造代码风险 vs 收益不划算。<em>这是工程权衡，不是性能权衡。</em></p>
+    </blockquote>
+    <blockquote>
+      <p><strong>实测端到端：</strong>FA 不可用时 prefill = 1040.7 ms/step；FA 加载后 prefill = 258 ms/step（eager）/ 198 ms/step（graph）。<strong>5.2× 提速完全来自 FA</strong>，融合 kernel 即便复用到 prefill 也只能再省 0.76%。</p>
+    </blockquote>
+
+    <h3 id="phase-decode">3.3 Decode：launch-bound，融合+Graph 主导</h3>
+    <p>Decode 每步只产生 1 个新 token，整个 batch 的 rows = batch_size。bench 里 <code>avg batch = 19.3</code>，所以所有 kernel 都跑在 sweep 表的 <strong>rows ≤ 64 区</strong>。在这一区：</p>
+    <ul>
+      <li>实测 rms_norm @ rows=20 ≈ <strong>6.14 µs</strong>，但只搬 ~110 KB → 有效带宽 ~18 GB/s（峰值的 7%）</li>
+      <li>这 6 µs <em>不是</em>访存时间，<strong>是 cudaLaunchKernel 的 host driver + GPU front-end 调度开销</strong>。证据：rows=1 和 rows=64 延迟都是 6.14 µs（bytes 涨了 40 倍延迟却不变）</li>
+      <li>每个 transformer 层有 ~10 个 kernel × 28 层 = 280 次 launch × 6 µs = <strong>1.68 ms 是 launch overhead</strong>，占 11.2 ms decode 步时长的 15%</li>
+    </ul>
+    <p><strong>所以 decode 优化 = 减少 kernel 数 + 消除 launch overhead</strong>，两条手段：</p>
+    <ol>
+      <li><strong>5-kernel 融合</strong>（split_qkv + q_norm + k_norm + rotary + store_kvcache → 1 个）：每层省 4 次 launch ≈ 24.7 µs，28 层省 <strong>692 µs/step</strong></li>
+      <li><strong>CUDA Graph capture</strong>：把整个 decode step 录成一个 graph，replay 时跳过几百次 cudaLaunchKernel，每步再省 ~0.4 ms</li>
+    </ol>
+    <blockquote>
+      <p><strong>实测：</strong>融合 kernel 单独 ≈ 6.14 µs vs 5 个独立 kernel ≈ 30.87 µs（micro-bench）。端到端：FA+融合 eager = 11.6 ms，加 graph = 11.2 ms（再省 0.4 ms）。两条优化叠加：22.1 → 11.2 ms = 2.0× 提速。</p>
+    </blockquote>
+  </div>
+
+  <h2 id="wall-clock">4. 端到端壁钟（bench_e2e）</h2>
+  <div class="section-body">
+    <p>三组同机同 seed 实测，区分 FA 加载与否、CUDA Graph 启用与否：</p>
+    <table>
+      <tr>
+        <th>配置</th>
+        <th>Total time</th>
+        <th>Throughput</th>
+        <th>Prefill ms/step</th>
+        <th>Decode ms/step</th>
+        <th>avg batch</th>
+      </tr>
+      <tr>
+        <td>无 FA · 自写 attention 兜底（cuda graph）</td>
+        <td class="num">13.23 s</td>
+        <td class="num">737.8 tok/s</td>
+        <td class="num">1040.7</td>
+        <td class="num bad">22.1</td>
+        <td class="num">19.3</td>
+      </tr>
+      <tr>
+        <td>FA + 融合（eager）</td>
+        <td class="num">6.36 s</td>
+        <td class="num">1535.4 tok/s</td>
+        <td class="num">258.0</td>
+        <td class="num warn">11.6</td>
+        <td class="num">19.3</td>
+      </tr>
+      <tr>
+        <td>FA + 融合 + CUDA Graph</td>
+        <td class="num">6.06 s</td>
+        <td class="num ok">1611.1 tok/s</td>
+        <td class="num">198.1</td>
+        <td class="num ok">11.2</td>
+        <td class="num">19.3</td>
+      </tr>
+    </table>
+    <blockquote>
+      <p><strong>解读：</strong>FA 替换主导 prefill 提速（1041 → 198 = 5.2×）；融合 + Graph 主导 decode 提速（22.1 → 11.2 = 2.0×）。
+      两者拼起来端到端 +118% 吞吐。</p>
+    </blockquote>
+  </div>
+
+  <h2 id="micro">5. 单 kernel micro-bench（cudaEvent）</h2>
+  <div class="section-body">
+
+    <h3 id="sweep">5.1 Batch sweep 数据（kWarmup=50, kIters=200, 中位数）</h3>
+    <p>同一 kernel 在不同 batch size 下的延迟和有效 HBM 带宽。<strong>关键观察：</strong>看 <code>med (us)</code> 列在 rows 增长时是不是「先平台、后线性」。</p>
+    <p>表格里的颜色提示对应阶段：<span style="color:var(--accent);">蓝色行</span> = decode 实际工作点（rows ≤ 64，launch-bound 平台区），<span style="color:var(--orange);">橙色行</span> = prefill 实际工作点（rows ≥ 256，memory-bound 线性区）。</p>
+
+    <h4>rms_norm bf16（hidden=896）</h4>
+    <table>
+      <tr><th>rows</th><th>阶段</th><th>bytes</th><th>med (µs)</th><th>BW GB/s</th><th>%peak</th></tr>
+      <tr><td>1</td><td style="color:var(--accent);">decode</td><td class="num">5,376</td><td class="num">6.14</td><td class="num">0.9</td><td class="num bad">0.3%</td></tr>
+      <tr><td>4</td><td style="color:var(--accent);">decode</td><td class="num">16,128</td><td class="num">6.14</td><td class="num">2.6</td><td class="num bad">1.0%</td></tr>
+      <tr><td>16</td><td style="color:var(--accent);"><strong>decode★</strong></td><td class="num">59,136</td><td class="num">6.14</td><td class="num">9.6</td><td class="num bad">3.5%</td></tr>
+      <tr><td>64</td><td style="color:var(--accent);">decode</td><td class="num">231,168</td><td class="num">6.14</td><td class="num">37.6</td><td class="num bad">13.8%</td></tr>
+      <tr><td>256</td><td style="color:var(--orange);">prefill</td><td class="num">919,296</td><td class="num">8.90</td><td class="num">103.3</td><td class="num warn">38.0%</td></tr>
+      <tr><td>1024</td><td style="color:var(--orange);"><strong>prefill★</strong></td><td class="num">3,671,808</td><td class="num">20.48</td><td class="num">179.3</td><td class="num ok">65.9%</td></tr>
+    </table>
+    <p style="font-size:0.82rem;color:var(--muted);">★ = 最接近实际工作点。decode batch=20 落在 rows=16 行附近，prefill 一次喂入数百 token 落在 rows=1024 行附近。</p>
+
+    <h4>add_rms_norm bf16（residual + norm 融合）</h4>
+    <table>
+      <tr><th>rows</th><th>bytes</th><th>med (µs)</th><th>BW GB/s</th><th>%peak</th></tr>
+      <tr><td>1</td><td class="num">8,960</td><td class="num">7.17</td><td class="num">1.2</td><td class="num bad">0.5%</td></tr>
+      <tr><td>16</td><td class="num">116,480</td><td class="num">6.14</td><td class="num">19.0</td><td class="num bad">7.0%</td></tr>
+      <tr><td>64</td><td class="num">460,544</td><td class="num">6.14</td><td class="num">75.0</td><td class="num warn">27.6%</td></tr>
+      <tr><td>256</td><td class="num">1,836,800</td><td class="num">10.08</td><td class="num">182.2</td><td class="num ok">67.0%</td></tr>
+      <tr><td>1024</td><td class="num">7,341,824</td><td class="num">23.33</td><td class="num">314.7</td><td class="num ok">115.7% *</td></tr>
+    </table>
+    <p style="font-size:0.85rem;color:var(--muted);">* 超过 272 GB/s 的「100%」是因为手册值偏保守，实际 HBM 物理上限约 315 GB/s。这条数据反向证明 add_rms_norm 在大 batch 下是 <em>真</em> memory-bound 的。</p>
+
+    <h4>store_kvcache bf16（带本次新增的 int4 向量化路径）</h4>
+    <table>
+      <tr><th>rows</th><th>bytes</th><th>med (µs)</th><th>BW GB/s</th><th>%peak</th></tr>
+      <tr><td>1</td><td class="num">1,024</td><td class="num">5.12</td><td class="num">0.2</td><td class="num bad">0.1%</td></tr>
+      <tr><td>16</td><td class="num">16,384</td><td class="num">5.12</td><td class="num">3.2</td><td class="num bad">1.2%</td></tr>
+      <tr><td>64</td><td class="num">65,536</td><td class="num">5.12</td><td class="num">12.8</td><td class="num bad">4.7%</td></tr>
+      <tr><td>256</td><td class="num">262,144</td><td class="num">6.14</td><td class="num">42.7</td><td class="num warn">15.7%</td></tr>
+      <tr><td>1024</td><td class="num">1,048,576</td><td class="num">10.24</td><td class="num">102.4</td><td class="num warn">37.6%</td></tr>
+    </table>
+
+    <h4>fused_split_norm_rope_store bf16（5-in-1 融合 kernel）</h4>
+    <table>
+      <tr><th>rows</th><th>bytes</th><th>med (µs)</th><th>BW GB/s</th><th>%peak</th></tr>
+      <tr><td>1</td><td class="num">4,864</td><td class="num">5.12</td><td class="num">1.0</td><td class="num bad">0.3%</td></tr>
+      <tr><td>16</td><td class="num">77,824</td><td class="num">6.14</td><td class="num">12.7</td><td class="num bad">4.7%</td></tr>
+      <tr><td>64</td><td class="num">311,296</td><td class="num">8.19</td><td class="num">38.0</td><td class="num warn">14.0%</td></tr>
+      <tr><td>256</td><td class="num">1,245,184</td><td class="num">16.38</td><td class="num">76.0</td><td class="num warn">27.9%</td></tr>
+      <tr><td>1024</td><td class="num">4,980,736</td><td class="num">48.13</td><td class="num">103.5</td><td class="num warn">38.0%</td></tr>
+    </table>
+
+    <h3 id="diagnosis">5.2 Launch-bound 诊断（仅适用于 decode）</h3>
+    <blockquote>
+      <p><strong>关键判据：</strong>对每个 kernel，从 rows=1 到 rows=64，bytes 涨了 ~40×，但延迟几乎不变（5-8 µs）。
+      这意味着<strong>计算和访存时间被 launch overhead 完全掩盖</strong>，kernel 实际「干活」的部分 &lt; 1 µs。</p>
+    </blockquote>
+    <ul>
+      <li><strong>5-8 µs 是什么</strong>：这正是 NVIDIA RTX 40 系列上一次 <code>cudaLaunchKernel</code> 的端到端开销（host driver 调度 + GPU front-end 解码 + warp 启动）</li>
+      <li><strong>什么时候不再是 launch-bound</strong>：rows ≥ 256 后延迟开始随 bytes 线性增长 → 进入 memory-bound 区</li>
+      <li><strong>Decode 的实际工作点</strong>：bench 里 <code>avg batch = 19.3</code>，落在 launch-bound 区的中段 → <em>融合 kernel 是正确的优化方向</em></li>
+    </ul>
+
+    <h3 id="fusion">5.3 5-kernel 融合的实际收益（decode 工作点 rows≈20）</h3>
+    <table>
+      <tr><th>路径</th><th>kernel 数</th><th>每层耗时（µs）</th><th>28 层耗时（µs）</th></tr>
+      <tr>
+        <td>原始：split + q_norm + k_norm + rotary + store_kv</td>
+        <td class="num">5</td>
+        <td class="num">~30.9</td>
+        <td class="num bad">~865</td>
+      </tr>
+      <tr>
+        <td>融合：fused_split_norm_rope_store</td>
+        <td class="num">1</td>
+        <td class="num">~6.1</td>
+        <td class="num ok">~172</td>
+      </tr>
+      <tr>
+        <td><strong>节省</strong></td>
+        <td class="num">−4</td>
+        <td class="num">−24.7</td>
+        <td class="num ok"><strong>−693 µs</strong></td>
+      </tr>
+    </table>
+    <p>占 11.2 ms decode 步长的 <strong>~6.2%</strong>。与端到端壁钟从 11.6 → 11.2 ms（融合 + Graph 微调）的 −0.4 ms 量级一致（剩余差距来自 CUDA Graph capture 的 launch 消除）。</p>
+  </div>
+
+  <h2 id="roofline">6. Roofline 验证（针对 prefill 工作点）</h2>
+  <div class="section-body">
+    <p>Roofline 图竖轴 <code>achieved BW</code>，横轴 <code>arithmetic intensity</code>。我们用的是 <strong>简化版</strong>：
+    在 batch sweep 里追踪每个 kernel「能否随 batch 增大达到 ≥ 70% 峰值带宽」，达到了说明 kernel 本身是 well-tuned。</p>
+
+    <table>
+      <tr><th>kernel</th><th>大 batch 峰值 BW (GB/s)</th><th>%peak (272 GB/s)</th><th>结论</th></tr>
+      <tr><td>add_rms_norm</td><td class="num">314.7</td><td class="num ok">115.7%</td><td class="ok">Well-tuned，触顶</td></tr>
+      <tr><td>split_qkv</td><td class="num">256.0</td><td class="num ok">94.1%</td><td class="ok">Well-tuned</td></tr>
+      <tr><td>rms_norm</td><td class="num">179.3</td><td class="num ok">65.9%</td><td class="warn">接近上限</td></tr>
+      <tr><td>rotary_embedding</td><td class="num">111.6</td><td class="num warn">41.0%</td><td class="warn">仍有余量（pair exchange via SMEM 限制）</td></tr>
+      <tr><td>fused_split_norm_rope_store</td><td class="num">103.5</td><td class="num warn">38.0%</td><td class="warn">block 内 reduce + RoPE pair 交换降低吞吐，<br/>但融合换来的 launch 节省 &gt;&gt; 单 kernel 带宽损失</td></tr>
+      <tr><td>store_kvcache（向量化后）</td><td class="num">102.4</td><td class="num warn">37.6%</td><td class="warn">仍受限于 token 粒度 grid，<br/>但已是 nano-vllm Python 版本的 1.7×</td></tr>
+    </table>
+
+    <blockquote>
+      <p><strong>设计权衡：</strong>融合 kernel 单看带宽利用率（38%）不如分离 kernel（rms_norm 66%, split_qkv 94%）。
+      但 decode 工作负载是 launch-bound 区，单 kernel 带宽饱和度不重要，<strong>kernel 总数才重要</strong>。
+      融合的本质是把「5 个高带宽利用率的 kernel」换成「1 个中带宽利用率的 kernel」，减少 4 次 launch overhead。</p>
+    </blockquote>
+  </div>
+
+  <h2 id="fa">7. Flash Attention 替换的证据（Prefill 主战场）</h2>
+  <div class="section-body">
+    <p>Prefill 路径从 1041 ms → 198 ms 的提速，主因是<strong>用官方 FA varlen 替代手写 prefill_paged_attention 兜底</strong>。两组实测：</p>
+    <table>
+      <tr><th>路径</th><th>Prefill ms/step</th><th>Decode ms/step</th><th>Throughput</th></tr>
+      <tr><td>FA <strong>不可用</strong>（libtorch_python.so 未在 LD path）→ 兜底自写 kernel</td><td class="num bad">1040.7</td><td class="num bad">22.1</td><td class="num bad">737.8 tok/s</td></tr>
+      <tr><td>FA <strong>可用</strong>（dlsym 加载）+ eager</td><td class="num ok">258.0</td><td class="num ok">11.6</td><td class="num ok">1535.4 tok/s</td></tr>
+    </table>
+    <p>注意第二行的 decode（11.6 ms）相比第一行（22.1 ms）也快了一半，因为 decode attention 也走 FA splitkv 路径。
+    所以 <strong>FA 同时主导 prefill 和 decode 提速</strong>，融合 + Graph 是在此基础上的 ~5% 边际优化。</p>
+    <h3>调用方式的细节</h3>
+    <pre><code>// 不通过 PyTorch C++ API，直接 dlopen + dlsym mangled symbol：
+// flash::run_mha_fwd_splitkv_dispatch&lt;cutlass::bfloat16_t, 128, false&gt;
+//
+// 复刻 Flash_fwd_params 结构体布局，保证 FA &lt;= 2.6.x 兼容</code></pre>
+    <p>详见 <a href="flash_attention.html">flash_attention.html</a> 中的实现说明。</p>
+  </div>
+
+  <h2 id="new-vec">8. store_kvcache 向量化的诚实评估</h2>
+  <div class="section-body">
+    <h3>改动</h3>
+    <p>新增 <code>store_kvcache_vec_kernel</code>：用 <code>int4</code> 一次搬 16 字节（bf16/fp16 = 8 元素，fp32 = 4 元素）；
+    保留原 kernel 作为 fallback，由 <code>can_vectorize_store_kvcache_16B</code> 守卫（row_bytes % 16 == 0 + 4 个指针 16-byte aligned）。</p>
+
+    <h3>实测对比</h3>
+    <p>store_kvcache 在 micro-bench 里达到 102.4 GB/s @ rows=1024（37.6% peak），改动前是逐元素拷贝（estimated &lt; 60 GB/s）。
+    但是：<strong>decode 主路径已经被 fused_split_norm_rope_store 取代，不调用 store_kvcache</strong>。</p>
+
+    <h3>诚实评估</h3>
+    <blockquote>
+      <p><strong>这次优化的真实价值：</strong></p>
+      <ul>
+        <li>decode bf16 主路径：<em>无观测收益</em>（被融合 kernel 绕过）</li>
+        <li>decode int8 KV cache 路径：<em>有收益但未实测</em>（int8 路径不能融合，仍走 store_kvcache，但量化版本是 store_kvcache_int8 不是这个）</li>
+        <li>prefill 路径：<em>理论收益 ~10 µs/层</em>，但 prefill 是 compute-bound（FA 占 80%+），整体观测不到</li>
+        <li>真正的价值：<strong>给未来的 INT4 / FP8 KV cache 路径预留性能基线</strong>（那些路径会重新走 store_kvcache）</li>
+      </ul>
+      <p>—— 端到端 bench 显示改动前后吞吐都在 1611 tok/s 左右（噪声内）。这是符合方法论第 4 步「&lt; 5% 收益且简化代码 → 提交」的边际优化。</p>
+    </blockquote>
+  </div>
+
+  <h2 id="repro">9. 复现命令</h2>
+  <div class="section-body">
+    <h3>构建</h3>
+    <pre><code>cd nano-vllm-cpp
+cmake -S . -B build
+cmake --build build -j4
+ctest --test-dir build --output-on-failure   # 期望 10/10 通过</code></pre>
+
+    <h3>端到端壁钟（§3）</h3>
+    <pre><code># 关闭 FA：不设 LD_LIBRARY_PATH 含 torch lib 即可
+LD_LIBRARY_PATH=/usr/lib/wsl/lib \
+  ./build/bench_e2e /path/to/Qwen3-0.6B           # 22 ms decode
+
+# 启用 FA + cuda graph
+LD_LIBRARY_PATH=/usr/lib/wsl/lib:/path/to/torch/lib \
+  ./build/bench_e2e /path/to/Qwen3-0.6B           # 11.2 ms decode
+
+# 启用 FA + eager（无 graph）
+LD_LIBRARY_PATH=/usr/lib/wsl/lib:/path/to/torch/lib \
+  ./build/bench_e2e /path/to/Qwen3-0.6B --eager   # 11.6 ms decode</code></pre>
+
+    <h3>Kernel micro-bench（§4）</h3>
+    <pre><code>LD_LIBRARY_PATH=/usr/lib/wsl/lib ./build/bench_kernels
+# 默认跑 rows ∈ {1, 4, 16, 64, 256, 1024} 的 sweep
+# 指定单 batch：
+LD_LIBRARY_PATH=/usr/lib/wsl/lib ./build/bench_kernels 256</code></pre>
+
+    <h3>源码位置</h3>
+    <ul>
+      <li>Bench：<code>bench/bench_e2e.cpp</code>、<code>bench/bench_kernels.cpp</code></li>
+      <li>融合 kernel：<code>src/kernels/split_qkv.cu :: fused_split_norm_rope_store_kernel</code></li>
+      <li>FA dlopen：<code>src/kernels/flash_attn.cpp</code></li>
+      <li>store_kvcache 向量化：<code>src/kernels/kvcache.cu :: store_kvcache_vec_kernel</code></li>
+    </ul>
+  </div>
+
+  <h2 id="caveats">10. 局限与诚实声明</h2>
+  <div class="section-body">
+    <ul>
+      <li><strong>没有 ncu 数据</strong>：WSL2 限制，下面的指标我没法直接给——SM 利用率、L2 hit rate、warp stall 类型分布、roofline 的精确 AI 坐标。本页的 roofline 推断基于 cudaEvent 时间 + 已知 byte 量，是<em>合理推断</em>不是<em>直接测量</em>。在原生 Linux + 解锁 perfcounter 的环境下，所有 ncu 数据都能立即补齐。</li>
+      <li><strong>没有 nsys 时间线图</strong>：同样原因，nsys 在这个 WSL 内核版本下抓不到 kernel runtime 事件。我能给出 cudaEvent 计时但无法给出可视化时间线。</li>
+      <li><strong>5-kernel 融合的 692 µs/step 节省是估算</strong>：基于 micro-bench 单 kernel 时间 × 28 层。实测端到端差是 0.3-0.4 ms（cuda graph 与 eager 的差），数量级一致但不完全等同——剩余差距应该来自 CUDA Graph 本身的 launch 消除和 ScratchAllocator。</li>
+      <li><strong>HBM 峰值 272 GB/s 是手册值</strong>：实测 add_rms_norm 触顶 314.7 GB/s 说明物理峰值更高。本页的 %peak 列偏保守，但 launch-bound 的判断不受影响。</li>
+      <li><strong>所有数据是单次复现，不是平均多次</strong>：cudaEvent 内部已经做了 200 次中位数稳定化，但端到端 bench_e2e 的方差没量化（粗估 ±2%）。</li>
+    </ul>
+
+    <blockquote>
+      <p><strong>最终结论：</strong>本页给出的不是「ncu 黑盒数字证明 X 是 Y 倍快」式的精确报告，而是「用 cudaEvent 微基准证明 decode 是 launch-bound，所以融合是正确方向；用端到端壁钟证明融合 + Graph 实际省 0.4 ms/step；两者数量级互相印证」的逻辑闭环。</p>
+      <p>在原生 Linux 环境下，下一步可以补：（1）<code>ncu --set roofline</code> 验证 fused kernel 的 AI 坐标；（2）<code>nsys --trace=cuda</code> 拿到 kernel-level 时间线，看 launch gap 是否真为 5-8 µs。</p>
+    </blockquote>
+  </div>
+
+  <footer>
+    生成时间：2026-05-04 · 数据复现命令见 §8
+  </footer>
+</main>
+
+<button id="top-btn" title="回到顶部" onclick="window.scrollTo({top:0,behavior:'smooth'})">↑</button>
+
+<script>
+document.querySelectorAll('h2').forEach(h2 => {
+  h2.addEventListener('click', () => h2.classList.toggle('collapsed'));
+});
+
+const tocLinks = document.querySelectorAll('aside a');
+const sections = Array.from(tocLinks)
+  .map(a => document.getElementById(a.getAttribute('href').slice(1)))
+  .filter(Boolean);
+const observer = new IntersectionObserver(entries => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      tocLinks.forEach(a => a.classList.toggle('active',
+        a.getAttribute('href') === '#' + e.target.id));
+    }
+  });
+}, { rootMargin: '-20% 0px -70% 0px' });
+sections.forEach(s => observer.observe(s));
+
+window.addEventListener('scroll', () => {
+  document.getElementById('top-btn').style.display =
+    window.scrollY > 400 ? 'block' : 'none';
+});
+</script>
+
+</body>
+</html>

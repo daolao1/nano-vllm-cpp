@@ -1,0 +1,790 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>nano-vllm-cpp 算子层文档</title>
+  <style>
+    :root {
+      --bg: #07131a;
+      --bg-soft: #0d1f28;
+      --panel: rgba(13, 31, 40, 0.82);
+      --panel-strong: rgba(10, 24, 32, 0.94);
+      --line: rgba(123, 178, 194, 0.24);
+      --text: #e6f2f4;
+      --muted: #9ab8bf;
+      --accent: #55d6be;
+      --accent-2: #ffb454;
+      --danger: #ff8f8f;
+      --ok: #7fe3b0;
+      --shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+      --radius: 20px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+    }
+
+    body {
+      margin: 0;
+      color: var(--text);
+      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(85, 214, 190, 0.16), transparent 28%),
+        radial-gradient(circle at top right, rgba(255, 180, 84, 0.14), transparent 26%),
+        linear-gradient(180deg, #061018 0%, #09151d 42%, #07131a 100%);
+      line-height: 1.65;
+    }
+
+    a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .page {
+      width: min(1180px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 28px 0 64px;
+    }
+
+    .hero {
+      padding: 34px;
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      background: linear-gradient(135deg, rgba(10, 24, 32, 0.96), rgba(13, 31, 40, 0.88));
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      position: relative;
+    }
+
+    .hero::after {
+      content: "";
+      position: absolute;
+      inset: auto -80px -80px auto;
+      width: 240px;
+      height: 240px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(85, 214, 190, 0.18), transparent 68%);
+      pointer-events: none;
+    }
+
+    .eyebrow {
+      margin: 0 0 12px;
+      font-size: 12px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--accent-2);
+    }
+
+    h1, h2, h3 {
+      margin: 0;
+      line-height: 1.2;
+      font-weight: 650;
+    }
+
+    h1 {
+      font-size: clamp(34px, 4vw, 54px);
+      max-width: 10em;
+    }
+
+    h2 {
+      font-size: 24px;
+      margin-bottom: 14px;
+    }
+
+    h3 {
+      font-size: 18px;
+      margin-bottom: 10px;
+    }
+
+    p {
+      margin: 0;
+      color: var(--muted);
+    }
+
+    .hero p {
+      max-width: 820px;
+      font-size: 16px;
+      margin-top: 14px;
+    }
+
+    .badge-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 22px;
+    }
+
+    .badge {
+      padding: 8px 12px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text);
+      font-size: 13px;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1fr);
+      gap: 18px;
+      margin-top: 18px;
+    }
+
+    .toc,
+    .section,
+    .card,
+    details {
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(16px);
+    }
+
+    .toc {
+      position: sticky;
+      top: 16px;
+      align-self: start;
+      padding: 18px;
+    }
+
+    .toc h2 {
+      font-size: 18px;
+      margin-bottom: 12px;
+    }
+
+    .toc ol {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: grid;
+      gap: 10px;
+    }
+
+    .toc li a {
+      display: block;
+      padding: 10px 12px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--text);
+      font-size: 14px;
+    }
+
+    .content {
+      display: grid;
+      gap: 18px;
+    }
+
+    .section {
+      padding: 24px;
+    }
+
+    .grid {
+      display: grid;
+      gap: 14px;
+    }
+
+    .grid.two {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .grid.three {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .card {
+      padding: 18px;
+    }
+
+    .card strong,
+    .stat strong {
+      display: block;
+      margin-bottom: 8px;
+      color: var(--text);
+      font-size: 15px;
+    }
+
+    .stat {
+      padding: 16px;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.035);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .pill {
+      display: inline-block;
+      margin-top: 12px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .pill.cuda {
+      color: #072016;
+      background: var(--ok);
+    }
+
+    .pill.fallback {
+      color: #251707;
+      background: var(--accent-2);
+    }
+
+    .pill.limit {
+      color: #270a0a;
+      background: var(--danger);
+    }
+
+    .flow {
+      display: grid;
+      gap: 10px;
+      margin-top: 16px;
+      font-family: "JetBrains Mono", "Fira Code", monospace;
+      font-size: 13px;
+    }
+
+    .flow-row {
+      padding: 14px 16px;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      overflow-x: auto;
+      white-space: nowrap;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 14px;
+      overflow: hidden;
+      border-radius: 16px;
+    }
+
+    th,
+    td {
+      text-align: left;
+      padding: 13px 14px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      vertical-align: top;
+    }
+
+    th {
+      color: var(--text);
+      font-weight: 600;
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+    td {
+      color: var(--muted);
+    }
+
+    .code {
+      margin-top: 14px;
+      padding: 16px;
+      border-radius: 16px;
+      background: rgba(5, 11, 16, 0.78);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      overflow-x: auto;
+      font-family: "JetBrains Mono", "Fira Code", monospace;
+      font-size: 13px;
+      color: #d8ebf0;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    details {
+      padding: 0;
+      overflow: hidden;
+    }
+
+    details + details {
+      margin-top: 12px;
+    }
+
+    summary {
+      cursor: pointer;
+      list-style: none;
+      padding: 18px 20px;
+      font-weight: 600;
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .details-body {
+      padding: 18px 20px 20px;
+      border-top: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    ul {
+      margin: 12px 0 0;
+      padding-left: 18px;
+      color: var(--muted);
+    }
+
+    li + li {
+      margin-top: 8px;
+    }
+
+    .footer {
+      margin-top: 18px;
+      padding: 18px 22px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: rgba(255, 255, 255, 0.03);
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    @media (max-width: 980px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      .toc {
+        position: static;
+      }
+
+      .grid.two,
+      .grid.three {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header class="hero">
+      <p class="eyebrow">nano-vllm-cpp / docs</p>
+      <h1>算子层文档</h1>
+      <p>
+        这一层位于 engine 与 Tensor/Memory Runtime 之间，负责把调度器给出的 batch 语义翻译成真正的张量计算。它既包含无状态的基础 kernel，
+        也包含带权重或带缓存状态的算子对象。本文档同时说明架构目标与当前仓库中的实际实现状态，避免把未来规划误认为现状。
+      </p>
+      <div class="badge-row">
+        <span class="badge">当前阶段: 最小可用单卡实现</span>
+        <span class="badge">phase-1 kernel: 真实 CUDA kernel</span>
+        <span class="badge">Attention: 设备端 CUDA 实现</span>
+        <span class="badge">Linear / Embedding / Sampler: 功能性 fallback</span>
+        <span class="badge">Tensor runtime 术语: Memory</span>
+      </div>
+    </header>
+
+    <div class="layout">
+      <aside class="toc">
+        <h2>目录</h2>
+        <ol>
+          <li><a href="#position">层次定位</a></li>
+          <li><a href="#map">组件总览</a></li>
+          <li><a href="#context">Context 侧带信息</a></li>
+          <li><a href="#kernels">Phase-1 基础 Kernel</a></li>
+          <li><a href="#stateful">状态型算子</a></li>
+          <li><a href="#flow">Prefill / Decode 数据流</a></li>
+          <li><a href="#status">当前实现状态</a></li>
+          <li><a href="#files">文件与测试</a></li>
+        </ol>
+      </aside>
+
+      <main class="content">
+        <section class="section" id="position">
+          <h2>层次定位</h2>
+          <p>
+            在 nano-vllm-cpp 里，调度器只决定“这一轮要算哪些 token、要不要抢占、KV block 怎么映射”；真正的数值计算发生在算子层。
+            算子层的职责不是管理队列，而是吃掉已经排好版的 Tensor，然后产出下一层需要的 Tensor 或 logits。
+          </p>
+          <div class="grid three" style="margin-top: 16px;">
+            <div class="stat">
+              <strong>上游</strong>
+              Scheduler / Sequence / BlockManager 负责 batch 组织、block 分配和运行时状态切换。
+            </div>
+            <div class="stat">
+              <strong>中间层</strong>
+              算子层消费 Context 与张量，封装 Attention、Linear、Embedding、Sampler 等模型计算单元。
+            </div>
+            <div class="stat">
+              <strong>下游</strong>
+              Tensor、Memory、CudaAllocator、cuBLAS wrapper 提供设备内存与基础计算载体。
+            </div>
+          </div>
+          <div class="code">engine/scheduler -> utils/context -> layers/* -> utils/tensor + utils/cuda_allocator + utils/cublas_wrapper</div>
+        </section>
+
+        <section class="section" id="map">
+          <h2>组件总览</h2>
+          <p>当前公开接口可以分成两类: 无状态 kernel 函数，以及带参数或缓存的状态型算子。</p>
+          <table>
+            <thead>
+              <tr>
+                <th>模块</th>
+                <th>接口</th>
+                <th>职责</th>
+                <th>当前实现</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Context</td>
+                <td>get_context / set_context / reset_context</td>
+                <td>把 prefill/decode 的批处理元信息作为线程本地上下文传给 Attention、LM Head 等算子。</td>
+                <td>已实现</td>
+              </tr>
+              <tr>
+                <td>kernel_ops</td>
+                <td>rms_norm, add_rms_norm, rotary_embedding, silu_and_mul, store_kvcache</td>
+                <td>最基础的逐 token / 逐 row CUDA kernel。</td>
+                <td>真实 CUDA kernel</td>
+              </tr>
+              <tr>
+                <td>Attention</td>
+                <td>set_kv_cache, forward</td>
+                <td>管理 KV cache 引用，并根据 Context 走 prefill 或 decode 路径。</td>
+                <td>设备端 CUDA 实现，当前为朴素版 paged/dense attention</td>
+              </tr>
+              <tr>
+                <td>Linear 家族</td>
+                <td>Column / Row / QKV / MergedColumn</td>
+                <td>承载线性层权重，并提供 TP 语义上的切分边界。</td>
+                <td>功能可用，当前为 host-side fallback</td>
+              </tr>
+              <tr>
+                <td>Embedding / LM Head</td>
+                <td>VocabParallelEmbedding, ParallelLMHead</td>
+                <td>词嵌入查表与输出 logits，LM Head 在 prefill 下只取每个序列最后一个 token。</td>
+                <td>功能可用，当前为 host-side fallback</td>
+              </tr>
+              <tr>
+                <td>Sampler</td>
+                <td>forward</td>
+                <td>对 logits 做 temperature 调整并采样下一个 token。</td>
+                <td>功能可用，当前为 host-side fallback</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section class="section" id="context">
+          <h2>Context 侧带信息</h2>
+          <p>
+            Attention 和 LM Head 不是只看输入张量 shape 就能判断当前批次语义。prefill 需要知道每个序列的边界，decode 需要知道每个请求已经积累了多少上下文。
+            因此仓库没有把这些元信息全部塞进 forward 参数，而是放在 thread_local Context 里。
+          </p>
+          <table>
+            <thead>
+              <tr>
+                <th>字段</th>
+                <th>含义</th>
+                <th>主要消费者</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>is_prefill</td>
+                <td>标记当前 batch 是 prompt 阶段还是 decode 阶段。</td>
+                <td>Attention, ParallelLMHead</td>
+              </tr>
+              <tr>
+                <td>cu_seqlens_q / cu_seqlens_k</td>
+                <td>压缩 batch 的前缀和边界，告诉算子每个序列在拼接张量里的起止位置。</td>
+                <td>Attention, ParallelLMHead</td>
+              </tr>
+              <tr>
+                <td>max_seqlen_q / max_seqlen_k</td>
+                <td>最大 query / key 序列长度，主要是给高性能 attention 后端预留接口。</td>
+                <td>Attention 的未来优化版本</td>
+              </tr>
+              <tr>
+                <td>slot_mapping</td>
+                <td>每个 token 应写入哪一个 KV cache 槽位。</td>
+                <td>store_kvcache, Attention</td>
+              </tr>
+              <tr>
+                <td>context_lens</td>
+                <td>decode 时每个请求当前可见的历史长度。</td>
+                <td>Attention</td>
+              </tr>
+              <tr>
+                <td>block_tables</td>
+                <td>逻辑 block 到物理 block 的映射表，用于 paged KV cache 回读。</td>
+                <td>Attention</td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="code">set_context(...) -> thread_local g_context -> Attention::forward / ParallelLMHead::forward 读取</div>
+        </section>
+
+        <section class="section" id="kernels">
+          <h2>Phase-1 基础 Kernel</h2>
+          <p>
+            这些 kernel 是目前算子层里最接近生产实现的一部分。它们直接在 CUDA 上运行，不依赖 host-side 数值回退，主要覆盖 Transformer block 的公共算子。
+          </p>
+
+          <div class="grid two" style="margin-top: 16px;">
+            <div class="card">
+              <strong>rms_norm</strong>
+              对最后一维做 row-wise RMSNorm，输出 shape 与输入一致。
+              <div class="pill cuda">真实 CUDA</div>
+            </div>
+            <div class="card">
+              <strong>add_rms_norm</strong>
+              先做 residual add，再做 RMSNorm，并额外写出 residual_out 供后续层复用。
+              <div class="pill cuda">真实 CUDA</div>
+            </div>
+            <div class="card">
+              <strong>rotary_embedding</strong>
+              对 query / key 的 head_dim 维做 RoPE 旋转，支持按 position 查 cos/sin cache。
+              <div class="pill cuda">真实 CUDA</div>
+            </div>
+            <div class="card">
+              <strong>silu_and_mul</strong>
+              把 gate_up 按最后一维一分为二，执行 SiLU(gate) * up。
+              <div class="pill cuda">真实 CUDA</div>
+            </div>
+            <div class="card">
+              <strong>store_kvcache</strong>
+              按 slot_mapping 把每个 token 的 key/value 写到 paged cache 对应槽位。
+              <div class="pill cuda">真实 CUDA</div>
+            </div>
+            <div class="card">
+              <strong>phase1_kernel_specs</strong>
+              提供一个轻量说明表，便于测试、文档或初始化阶段枚举当前 kernel 能力。
+              <div class="pill cuda">元数据接口</div>
+            </div>
+          </div>
+
+          <details open>
+            <summary>实现要点</summary>
+            <div class="details-body">
+              <ul>
+                <li>RMSNorm 与 AddRMSNorm 使用 warp reduction + block reduction，避免每一行都走全局同步。</li>
+                <li>float32 场景下为 RMSNorm / AddRMSNorm 提供了 float4 向量化 fast path。</li>
+                <li>RoPE 在 float32 场景下提供了 packed float2 fast path，减少标量读写与指令数。</li>
+                <li>kernel 接口统一要求输入在 CUDA 上且 contiguous，避免 view 语义把地址计算复杂化。</li>
+                <li>支持的核心浮点 dtype 是 float16 / bfloat16 / float32；当前没有 INT8 量化路径。</li>
+              </ul>
+            </div>
+          </details>
+
+          <details>
+            <summary>典型调用关系</summary>
+            <div class="details-body">
+              <div class="code">RMSNorm: hidden -> rms_norm(hidden, weight, eps, out)
+MLP gating: gate_up -> silu_and_mul(gate_up, out)
+Attention cache write: key/value + slot_mapping -> store_kvcache(...)
+RoPE: positions + cos_sin_cache + query/key -> rotary_embedding(...)</div>
+            </div>
+          </details>
+        </section>
+
+        <section class="section" id="stateful">
+          <h2>状态型算子</h2>
+          <p>
+            这些类承载权重、维度配置或缓存引用。接口形式已经和后续更高性能版本兼容，但当前实现优先保证端到端可运行，而不是吞吐最优。
+          </p>
+
+          <details open>
+            <summary>Attention</summary>
+            <div class="details-body">
+              <p>
+                Attention 持有 num_heads、num_kv_heads、head_dim、block_size 以及可选的 k_cache / v_cache。
+                forward 时会先做形状校验；如果 KV cache 与 slot_mapping 已设置，就先调用 store_kvcache 把本轮 token 写入缓存。
+                随后它直接在 CUDA 上按 prefill 或 decode 分支执行朴素 softmax attention，不再把大块 query/key/value 拷回 host。
+              </p>
+              <ul>
+                <li>prefill: 通过 cu_seqlens_q / cu_seqlens_k 切出每个序列，并在因果掩码范围内做注意力计算。</li>
+                <li>decode: 通过 context_lens + block_tables 从 paged KV cache 回读完整历史，再对单 token query 做注意力。</li>
+                <li>当前只支持 contiguous CUDA float32 张量。</li>
+                <li>已经不是 host-side fallback，但还不是 FlashAttention 的高性能版本。</li>
+              </ul>
+              <div class="pill cuda">当前为设备端 CUDA 实现</div>
+            </div>
+          </details>
+
+          <details>
+            <summary>Linear 家族</summary>
+            <div class="details-body">
+              <p>
+                ColumnParallelLinear、RowParallelLinear、QKVParallelLinear、MergedColumnParallelLinear 当前都复用一个 run_linear 辅助函数。
+                这个辅助函数会把 input / weight / bias 复制到 host，在 CPU 上完成矩阵乘加，再把结果拷回 CUDA Tensor。
+              </p>
+              <ul>
+                <li>ColumnParallelLinear 负责输出维切分，local_output_size = output_size / tp_size。</li>
+                <li>RowParallelLinear 已保留接口语义，但当前仅支持 tp_size = 1，还没有 all-reduce 汇聚路径。</li>
+                <li>QKVParallelLinear 本质上是一个特定输出布局的 ColumnParallelLinear。</li>
+                <li>MergedColumnParallelLinear 把多个输出分支拼接成一次线性映射。</li>
+                <li>当前实现只支持 contiguous CUDA float32 张量，且未接入 cuBLAS GEMM。</li>
+              </ul>
+              <div class="pill fallback">当前为 host-side fallback</div>
+            </div>
+          </details>
+
+          <details>
+            <summary>Embedding 与 LM Head</summary>
+            <div class="details-body">
+              <p>
+                VocabParallelEmbedding 当前仍以单卡优先，要求 tp_size = 1。它会把 input_ids 拷到 host，执行查表后写回输出 Tensor。
+                ParallelLMHead 同样走 host-side matmul，但做了一件对推理链路很重要的事: 如果 Context 标记为 prefill 且给出了 cu_seqlens_q，
+                它只会抽取每个序列最后一个 token 的 hidden state 参与 logits 计算，这与真实推理时“prefill 只对最后位置采样”一致。
+              </p>
+              <ul>
+                <li>Embedding: 输出 shape = input_ids.shape + [hidden_dim]。</li>
+                <li>LM Head: 输入期望为 [N, hidden_dim]，输出为 [rows, local_vocab_size]。</li>
+                <li>未来如果接入 tensor parallel，需要引入 vocab shard gather / reduce 逻辑。</li>
+              </ul>
+              <div class="pill fallback">当前为 host-side fallback</div>
+            </div>
+          </details>
+
+          <details>
+            <summary>Sampler</summary>
+            <div class="details-body">
+              <p>
+                Sampler::forward 接收 logits 和 temperatures，先在 host 上做 temperature 缩放与 softmax，再使用 Gumbel-max 风格的采样方式选出 token。
+                返回值不是 Tensor，而是 std::vector&lt;int32_t&gt;，因为采样结果通常马上回到调度器和序列状态机中，而不是继续参与 GPU 计算图。
+              </p>
+              <ul>
+                <li>logits 形状要求是 [batch_size, vocab_size]。</li>
+                <li>temperatures 形状要求是 [batch_size]。</li>
+                <li>每一行使用 seed + row 构造确定性随机源，方便测试复现。</li>
+              </ul>
+              <div class="pill fallback">当前为 host-side fallback</div>
+            </div>
+          </details>
+        </section>
+
+        <section class="section" id="flow">
+          <h2>Prefill / Decode 数据流</h2>
+          <p>同一套算子接口，在 prefill 和 decode 下看到的语义并不一样，区别主要来自 Context 与 KV cache。</p>
+
+          <div class="flow">
+            <div class="flow-row">Prefill: input_ids -> Embedding -> QKV Linear -> RoPE -> Attention(write KV + causal attention) -> Output Linear -> MLP Linear -> SiLUAndMul -> Linear -> RMSNorm -> LM Head(select last token per sequence) -> Sampler</div>
+            <div class="flow-row">Decode: last_token_ids -> Embedding -> QKV Linear -> RoPE -> Attention(write current KV + read paged KV cache) -> Output Linear -> MLP -> RMSNorm -> LM Head -> Sampler</div>
+          </div>
+
+          <div class="grid two" style="margin-top: 16px;">
+            <div class="card">
+              <strong>Prefill 关注点</strong>
+              需要用 cu_seqlens_q / cu_seqlens_k 表示一个压缩后的变长 batch；Attention 只允许每个 query 看到自己之前的 token；LM Head 只取每个序列最后一个位置。
+            </div>
+            <div class="card">
+              <strong>Decode 关注点</strong>
+              query 往往只有当前步的一个 token，但 key/value 要从 paged KV cache 里按 block_tables 回读完整历史；context_lens 决定每个请求这一步到底能看到多长上下文。
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="status">
+          <h2>当前实现状态</h2>
+          <p>如果从“是否能跑通一轮单卡生成”这个标准看，算子层已经具备端到端能力；如果从“是否接近 vLLM 的高性能实现”这个标准看，还处在过渡阶段。</p>
+          <table>
+            <thead>
+              <tr>
+                <th>能力</th>
+                <th>架构目标</th>
+                <th>当前仓库状态</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>基础归一化 / 激活 / RoPE / KV 写入</td>
+                <td>直接走 CUDA kernel</td>
+                <td>已完成，且做了向量化优化</td>
+              </tr>
+              <tr>
+                <td>Attention</td>
+                <td>FlashAttention C API + PagedAttention 路径</td>
+                <td>接口、KV 写入和数值计算都已在设备端打通，但实现仍是朴素 attention，不是 FlashAttention</td>
+              </tr>
+              <tr>
+                <td>Linear 家族</td>
+                <td>cuBLAS / cutlass + tensor parallel 通信</td>
+                <td>目前是 host-side matmul；RowParallel 仅支持 tp_size = 1</td>
+              </tr>
+              <tr>
+                <td>Embedding / LM Head</td>
+                <td>并行词表分片与设备端计算</td>
+                <td>功能可用，但当前仍是单卡 host fallback</td>
+              </tr>
+              <tr>
+                <td>Sampler</td>
+                <td>设备端采样或更高效的并行实现</td>
+                <td>当前在 host 上做 softmax + Gumbel-max</td>
+              </tr>
+              <tr>
+                <td>量化 dtype</td>
+                <td>支持 INT8 / FP8 等低精度路径</td>
+                <td>尚未实现；当前核心路径以 float16 / bfloat16 / float32 为主</td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="grid two" style="margin-top: 16px;">
+            <div class="card">
+              <strong>这版实现已经解决的问题</strong>
+              Scheduler、Context、KV slot_mapping、block_tables、prefill/decode 语义、LM Head 最后 token 选择，这些推理框架层面的关键约束已经被编码进算子边界里。
+            </div>
+            <div class="card">
+              <strong>下一阶段最值得替换的点</strong>
+              把 Attention 切到真正的 FlashAttention / PagedAttention 后端，把 Linear / LM Head 切到 cuBLAS 或 cutlass，把 TP 通信语义从接口落实到实现。
+            </div>
+          </div>
+        </section>
+
+        <section class="section" id="files">
+          <h2>文件与测试</h2>
+          <p>阅读源码时，可以按下面这个顺序进入:</p>
+          <div class="code">include/utils/context.h
+src/utils/context.cpp
+include/layers/kernel_ops.h
+src/layers/kernel_ops.cu
+include/layers/attention.h
+src/layers/attention.cpp
+include/layers/linear.h
+src/layers/linear.cpp
+include/layers/embed_head.h
+src/layers/embed_head.cpp
+include/layers/sampler.h
+src/layers/sampler.cpp
+tests/test_tensor.cpp
+tests/test_layers.cpp</div>
+
+          <div class="grid two" style="margin-top: 16px;">
+            <div class="card">
+              <strong>相关文档</strong>
+              <ul>
+                <li><a href="tensor.html">Tensor / Memory Runtime 文档</a></li>
+                <li><a href="scheduler.html">Scheduler 文档</a></li>
+                <li><a href="block_manager.html">BlockManager 文档</a></li>
+                <li><a href="config_params.html">Config 参数文档</a></li>
+              </ul>
+            </div>
+            <div class="card">
+              <strong>测试覆盖重点</strong>
+              <ul>
+                <li>tests/test_tensor.cpp 主要覆盖基础 CUDA kernel 与 Tensor/Memory 运行时。</li>
+                <li>tests/test_layers.cpp 主要覆盖 Context、Attention、Linear、Embedding、LM Head、Sampler 的最小可用行为。</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div class="footer">
+      结论: 这套算子层接口已经把推理框架需要的运行时语义固定下来，当前欠缺的主要不是 API，而是把若干 host-side fallback 替换成真正高性能的设备端实现。
+    </div>
+  </div>
+</body>
+</html>
